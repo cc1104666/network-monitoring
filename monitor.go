@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -286,20 +287,97 @@ func (nm *NetworkMonitor) processRequests() {
 	}
 }
 
-func (nm *NetworkMonitor) AddClient(client *WSClient) {
+// 客户端管理方法
+func (nm *NetworkMonitor) RegisterClient(client *WSClient) {
 	nm.mu.Lock()
 	nm.clients[client] = true
 	nm.mu.Unlock()
 	log.Printf("新客户端连接，当前连接数: %d", len(nm.clients))
 }
 
-func (nm *NetworkMonitor) RemoveClient(client *WSClient) {
+func (nm *NetworkMonitor) UnregisterClient(client *WSClient) {
 	nm.mu.Lock()
 	delete(nm.clients, client)
 	nm.mu.Unlock()
 	log.Printf("客户端断开连接，当前连接数: %d", len(nm.clients))
 }
 
+// 数据获取方法 - handlers.go需要的方法
+func (nm *NetworkMonitor) GetCurrentStats() []TrafficStats {
+	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+	
+	data := make([]TrafficStats, len(nm.trafficData))
+	copy(data, nm.trafficData)
+	return data
+}
+
+func (nm *NetworkMonitor) GetServerStatus() []*ServerStatus {
+	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+	
+	servers := make([]*ServerStatus, 0, len(nm.servers))
+	for _, server := range nm.servers {
+		servers = append(servers, server)
+	}
+	return servers
+}
+
+func (nm *NetworkMonitor) GetEndpointStats() []*EndpointStats {
+	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+	
+	endpoints := make([]*EndpointStats, 0, len(nm.endpoints))
+	for _, endpoint := range nm.endpoints {
+		endpoints = append(endpoints, endpoint)
+	}
+	return endpoints
+}
+
+func (nm *NetworkMonitor) GetRequestDetails() []RequestDetail {
+	nm.detailsMutex.RLock()
+	defer nm.detailsMutex.RUnlock()
+	
+	details := make([]RequestDetail, len(nm.requestDetails))
+	copy(details, nm.requestDetails)
+	return details
+}
+
+func (nm *NetworkMonitor) GetRequestDetailsByEndpoint(endpoint string) []RequestDetail {
+	nm.detailsMutex.RLock()
+	defer nm.detailsMutex.RUnlock()
+	
+	var filtered []RequestDetail
+	for _, detail := range nm.requestDetails {
+		if detail.Endpoint == endpoint {
+			filtered = append(filtered, detail)
+		}
+	}
+	return filtered
+}
+
+// 代理更新方法 - main.go需要的方法
+func (nm *NetworkMonitor) UpdateServerFromAgent(metrics *SystemMetrics) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+
+	server := &ServerStatus{
+		ID:       metrics.ServerID,
+		Name:     metrics.ServerName,
+		IP:       metrics.ServerIP,
+		Status:   metrics.Status,
+		CPU:      metrics.CPU,
+		Memory:   metrics.Memory,
+		Requests: 0, // 这里可以从代理获取请求数
+		LastSeen: metrics.Timestamp,
+	}
+
+	nm.servers[server.ID] = server
+	log.Printf("更新服务器状态: %s (%s) - CPU: %.1f%%, 内存: %.1f%%",
+		server.Name, server.IP, server.CPU, server.Memory)
+}
+
+// 广播方法
 func (nm *NetworkMonitor) broadcastTrafficData(stats TrafficStats) {
 	message := map[string]interface{}{
 		"type": "traffic",
@@ -375,48 +453,52 @@ func (nm *NetworkMonitor) broadcast(message interface{}) {
 		case client.send <- data:
 		default:
 			// 客户端发送缓冲区满，移除客户端
-			nm.RemoveClient(client)
+			nm.UnregisterClient(client)
 			close(client.send)
 		}
 	}
 }
 
-func (nm *NetworkMonitor) GetTrafficData() []TrafficStats {
-	nm.mu.RLock()
-	defer nm.mu.RUnlock()
-	
-	data := make([]TrafficStats, len(nm.trafficData))
-	copy(data, nm.trafficData)
-	return data
-}
-
-func (nm *NetworkMonitor) GetServers() map[string]*ServerStatus {
-	nm.mu.RLock()
-	defer nm.mu.RUnlock()
-	
-	servers := make(map[string]*ServerStatus)
-	for k, v := range nm.servers {
-		servers[k] = v
+// WebSocket客户端方法 - main.go需要的方法
+func (client *WSClient) SendJSON(data interface{}) error {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return err
 	}
-	return servers
-}
 
-func (nm *NetworkMonitor) GetEndpoints() map[string]*EndpointStats {
-	nm.mu.RLock()
-	defer nm.mu.RUnlock()
-	
-	endpoints := make(map[string]*EndpointStats)
-	for k, v := range nm.endpoints {
-		endpoints[k] = v
+	select {
+	case client.send <- jsonData:
+		return nil
+	default:
+		return nil // 客户端发送缓冲区满
 	}
-	return endpoints
 }
 
-func (nm *NetworkMonitor) GetRequestDetails() []RequestDetail {
-	nm.detailsMutex.RLock()
-	defer nm.detailsMutex.RUnlock()
-	
-	details := make([]RequestDetail, len(nm.requestDetails))
-	copy(details, nm.requestDetails)
-	return details
+func (client *WSClient) writePump() {
+	defer client.conn.Close()
+
+	for {
+		select {
+		case message, ok := <-client.send:
+			if !ok {
+				client.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			client.conn.WriteMessage(websocket.TextMessage, message)
+		}
+	}
+}
+
+func (client *WSClient) readPump() {
+	defer func() {
+		close(client.done)
+		client.conn.Close()
+	}()
+
+	for {
+		_, _, err := client.conn.ReadMessage()
+		if err != nil {
+			break
+		}
+	}
 }
