@@ -629,10 +629,3 @@ else
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     exit 1
 fi
-EOF
-
-现在运行完整修复脚本：
-
-```bash
-chmod +x complete-fix.sh
-bash complete-fix.sh
