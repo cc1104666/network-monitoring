@@ -3,29 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
-
-type ThreatDetector struct {
-	mu           sync.RWMutex
-	alerts       []ThreatAlert
-	requestCount map[string]map[string]int
-	timeWindows  map[string]time.Time
-	alertID      int
-}
-
-type ThreatAlert struct {
-	ID          int
-	Type        string
-	Severity    string
-	Endpoint    string
-	Requests    int
-	TimeWindow  string
-	SourceIP    string
-	Timestamp   time.Time
-	Description string
-	Active      bool
-}
 
 func NewThreatDetector() *ThreatDetector {
 	return &ThreatDetector{
