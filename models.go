@@ -72,6 +72,12 @@ type ThreatDetector struct {
 	requestCount map[string]map[string]int // endpoint -> IP -> count
 	timeWindows  map[string]time.Time      // endpoint -> last reset time
 	alertID      int
+
+	// 新增字段用于真实威胁检测
+	ipFailCount  map[string]int       // IP -> 失败次数
+	ipLastFail   map[string]time.Time // IP -> 最后失败时间
+	systemErrors []string             // 系统错误日志
+	processDown  []string             // 停止的进程
 }
 
 // 请求事件

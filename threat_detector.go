@@ -8,12 +8,15 @@ import (
 
 func NewThreatDetector() *ThreatDetector {
 	return &ThreatDetector{
+		mu:           sync.RWMutex{},
 		alerts:       make([]ThreatAlert, 0),
 		requestCount: make(map[string]map[string]int),
 		timeWindows:  make(map[string]time.Time),
 		alertID:      1,
 		ipFailCount:  make(map[string]int),
 		ipLastFail:   make(map[string]time.Time),
+		systemErrors: make([]string, 0),
+		processDown:  make([]string, 0),
 	}
 }
 
