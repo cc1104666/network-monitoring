@@ -1,15 +1,14 @@
 package main
 
 import (
-	"fmt"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 )
 
 func NewThreatDetector() *ThreatDetector {
 	return &ThreatDetector{
-		mu:           sync.RWMutex{},
 		alerts:       make([]ThreatAlert, 0),
 		requestCount: make(map[string]map[string]int),
 		timeWindows:  make(map[string]time.Time),
@@ -18,128 +17,126 @@ func NewThreatDetector() *ThreatDetector {
 }
 
 func (td *ThreatDetector) Start() {
-	go td.monitorThreats()
+	go td.generateThreats()
+	go td.cleanupOldAlerts()
 	log.Println("威胁检测器已启动")
 }
 
-func (td *ThreatDetector) monitorThreats() {
-	ticker := time.NewTicker(10 * time.Second)
+func (td *ThreatDetector) generateThreats() {
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
+	threatTypes := []string{"DDoS", "BruteForce", "RateLimit", "SQLInjection", "XSS"}
+	severities := []string{"critical", "high", "medium", "low"}
+	endpoints := []string{"/api/login", "/api/users", "/api/data", "/api/upload", "/api/search"}
+	sourceIPs := []string{"203.45.67.89", "192.168.1.100", "10.0.0.50", "172.16.0.25", "45.123.45.67"}
+
 	for range ticker.C {
-		td.detectThreats()
-		td.cleanupOldAlerts()
-	}
-}
-
-func (td *ThreatDetector) detectThreats() {
-	td.mu.Lock()
-	defer td.mu.Unlock()
-
-	// 模拟威胁检测
-	threats := []struct {
-		endpoint   string
-		requests   int
-		ip         string
-		threatType string
-	}{
-		{"/api/search", 45000, "多个IP地址", "DDoS Attack"},
-		{"/api/login", 8950, "203.45.67.89", "Brute Force"},
-		{"/api/users", 15420, "192.168.1.100", "Rate Limit Exceeded"},
-	}
-
-	for _, threat := range threats {
-		// 检查是否已存在相同的活跃告警
-		exists := false
-		for _, alert := range td.alerts {
-			if alert.Endpoint == threat.endpoint && alert.Active && alert.Type == threat.threatType {
-				exists = true
-				break
-			}
-		}
-
-		if !exists && td.shouldTriggerAlert(threat.endpoint, threat.requests) {
+		// 30%概率生成新威胁
+		if rand.Float32() < 0.3 {
+			td.mu.Lock()
+			
 			alert := ThreatAlert{
 				ID:          td.alertID,
-				Type:        threat.threatType,
-				Severity:    td.calculateSeverity(threat.requests),
-				Endpoint:    threat.endpoint,
-				Requests:    threat.requests,
+				Type:        threatTypes[rand.Intn(len(threatTypes))],
+				Severity:    severities[rand.Intn(len(severities))],
+				Endpoint:    endpoints[rand.Intn(len(endpoints))],
+				Requests:    rand.Intn(10000) + 1000,
 				TimeWindow:  "5分钟",
-				SourceIP:    threat.ip,
+				SourceIP:    sourceIPs[rand.Intn(len(sourceIPs))],
 				Timestamp:   time.Now(),
-				Description: fmt.Sprintf("检测到%s攻击，目标: %s", threat.threatType, threat.endpoint),
+				Description: td.generateThreatDescription(),
 				Active:      true,
 			}
-
+			
 			td.alerts = append(td.alerts, alert)
 			td.alertID++
-
-			log.Printf("新威胁告警: %s - %s (%s)", alert.Type, alert.Endpoint, alert.Severity)
+			
+			td.mu.Unlock()
+			
+			log.Printf("🚨 检测到威胁: %s - %s (%s)", alert.Type, alert.Severity, alert.SourceIP)
 		}
 	}
 }
 
-func (td *ThreatDetector) shouldTriggerAlert(endpoint string, requests int) bool {
-	// 简单的阈值检测
-	thresholds := map[string]int{
-		"/api/search": 40000,
-		"/api/login":  8000,
-		"/api/users":  15000,
-		"/api/data":   20000,
-		"/api/upload": 5000,
+func (td *ThreatDetector) generateThreatDescription() string {
+	descriptions := []string{
+		"检测到异常高频请求，可能存在DDoS攻击",
+		"发现多次登录失败尝试，疑似暴力破解",
+		"请求频率超过正常阈值，触发限流保护",
+		"检测到可疑的SQL注入尝试",
+		"发现潜在的跨站脚本攻击",
+		"异常的API调用模式，可能存在恶意行为",
+		"检测到来自可疑IP的大量请求",
+		"发现异常的用户代理字符串",
 	}
-
-	if threshold, exists := thresholds[endpoint]; exists {
-		return requests > threshold
-	}
-
-	return requests > 10000 // 默认阈值
-}
-
-func (td *ThreatDetector) calculateSeverity(requests int) string {
-	if requests > 50000 {
-		return "critical"
-	} else if requests > 20000 {
-		return "high"
-	} else if requests > 10000 {
-		return "medium"
-	}
-	return "low"
+	return descriptions[rand.Intn(len(descriptions))]
 }
 
 func (td *ThreatDetector) cleanupOldAlerts() {
-	td.mu.Lock()
-	defer td.mu.Unlock()
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
 
-	// 将超过30分钟的告警标记为非活跃
-	cutoff := time.Now().Add(-30 * time.Minute)
-	for i := range td.alerts {
-		if td.alerts[i].Timestamp.Before(cutoff) {
-			td.alerts[i].Active = false
+	for range ticker.C {
+		td.mu.Lock()
+		
+		// 移除超过1小时的告警
+		cutoff := time.Now().Add(-1 * time.Hour)
+		var activeAlerts []ThreatAlert
+		
+		for _, alert := range td.alerts {
+			if alert.Timestamp.After(cutoff) {
+				activeAlerts = append(activeAlerts, alert)
+			}
 		}
+		
+		td.alerts = activeAlerts
+		td.mu.Unlock()
 	}
-}
-
-func (td *ThreatDetector) GetActiveThreats() []ThreatAlert {
-	td.mu.RLock()
-	defer td.mu.RUnlock()
-
-	activeThreats := make([]ThreatAlert, 0)
-	for _, alert := range td.alerts {
-		if alert.Active {
-			activeThreats = append(activeThreats, alert)
-		}
-	}
-
-	return activeThreats
 }
 
 func (td *ThreatDetector) GetAllThreats() []ThreatAlert {
 	td.mu.RLock()
 	defer td.mu.RUnlock()
-
+	
 	threats := make([]ThreatAlert, len(td.alerts))
 	copy(threats, td.alerts)
 	return threats
+}
+
+func (td *ThreatDetector) GetActiveThreats() []ThreatAlert {
+	td.mu.RLock()
+	defer td.mu.RUnlock()
+	
+	var activeThreats []ThreatAlert
+	for _, alert := range td.alerts {
+		if alert.Active {
+			activeThreats = append(activeThreats, alert)
+		}
+	}
+	return activeThreats
+}
+
+func (td *ThreatDetector) AddThreat(alert ThreatAlert) {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	
+	alert.ID = td.alertID
+	alert.Timestamp = time.Now()
+	alert.Active = true
+	
+	td.alerts = append(td.alerts, alert)
+	td.alertID++
+}
+
+func (td *ThreatDetector) DeactivateThreat(id int) {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	
+	for i := range td.alerts {
+		if td.alerts[i].ID == id {
+			td.alerts[i].Active = false
+			break
+		}
+	}
 }
