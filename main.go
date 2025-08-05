@@ -26,6 +26,10 @@ func main() {
 	go monitor.Start()
 	go threatDetector.Start()
 	
+	// 启动真实数据收集器
+	realDataCollector := NewRealDataCollector(monitor, threatDetector)
+	go realDataCollector.Start()
+	
 	// 创建路由
 	r := mux.NewRouter()
 	
@@ -48,6 +52,7 @@ func main() {
 	// 启动服务器
 	log.Println("🚀 天眼网络监控系统启动在端口 :8080")
 	log.Println("📊 监控面板: http://localhost:8080")
+	log.Println("🔍 真实数据收集器已启用")
 	log.Fatal(http.ListenAndServe(":8080", r))
 }
 
@@ -94,6 +99,7 @@ func websocketHandler(monitor *NetworkMonitor, detector *ThreatDetector) http.Ha
 			send:     make(chan []byte, 256),
 			monitor:  monitor,
 			detector: detector,
+			done:     make(chan struct{}),
 		}
 		
 		// 注册客户端
