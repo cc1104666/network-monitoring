@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天眼网络监控系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0f172a; color: white; }
+        .card { background-color: #1e293b; border: 1px solid #334155; }
+        .alert-critical { border-left: 4px solid #ef4444; }
+        .alert-high { border-left: 4px solid #f97316; }
+        .alert-medium { border-left: 4px solid #eab308; }
+        .status-healthy { color: #22c55e; }
+        .status-warning { color: #eab308; }
+        .status-critical { color: #ef4444; }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-950 text-white">
+    <div class="max-w-7xl mx-auto p-6 space-y-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-blue-600 rounded-lg">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold">天眼网络监控系统</h1>
+                    <p class="text-slate-400">实时流量监控与威胁感知平台</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="text-right">
+                    <div class="text-sm text-slate-400">系统时间</div>
+                    <div class="font-mono" id="current-time"></div>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-1 bg-slate-800 rounded-lg">
+                    <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                    <span class="text-sm">实时连接</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 关键指标 -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="card p-4 rounded-lg">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm text-slate-400">总请求数</span>
+                    <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                </div>
+                <div class="text-2xl font-bold" id="total-requests">0</div>
+                <div class="text-xs text-green-400">+12.5% 较上小时</div>
+            </div>
+
+            <div class="card p-4 rounded-lg">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm text-slate-400">威胁检测</span>
+                    <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                    </svg>
+                </div>
+                <div class="text-2xl font-bold" id="total-threats">0</div>
+                <div class="text-xs text-red-400" id="active-alerts">0 个高危告警</div>
+            </div>
+
+            <div class="card p-4 rounded-lg">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm text-slate-400">在线服务器</span>
+                    <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path>
+                    </svg>
+                </div>
+                <div class="text-2xl font-bold" id="online-servers">0/0</div>
+                <div class="text-xs text-slate-400" id="server-issues">0 个异常</div>
+            </div>
+
+            <div class="card p-4 rounded-lg">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm text-slate-400">平均响应时间</span>
+                    <svg class="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                </div>
+                <div class="text-2xl font-bold" id="avg-response">0ms</div>
+                <div class="text-xs text-green-400">优秀 (-15ms)</div>
+            </div>
+        </div>
+
+        <!-- 威胁告警 -->
+        <div id="threat-alerts" class="hidden">
+            <div class="bg-red-950/50 border border-red-500 rounded-lg p-4">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                    </svg>
+                    <h3 class="text-red-400 font-semibold">紧急威胁告警</h3>
+                </div>
+                <p class="text-red-300 mt-1" id="threat-message">检测到严重威胁，请立即处理！</p>
+            </div>
+        </div>
+
+        <!-- 主要内容区域 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 实时流量图表 -->
+            <div class="card p-6 rounded-lg">
+                <h3 class="text-lg font-semibold mb-4">实时流量监控</h3>
+                <div class="h-64">
+                    <canvas id="trafficChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 服务器状态 -->
+            <div class="card p-6 rounded-lg">
+                <h3 class="text-lg font-semibold mb-4">服务器状态</h3>
+                <div id="server-list" class="space-y-3">
+                    <!-- 服务器状态将在这里动态生成 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- API接口监控 -->
+        <div class="card p-6 rounded-lg">
+            <h3 class="text-lg font-semibold mb-4">API接口监控</h3>
+            <div id="endpoint-list" class="space-y-3">
+                <!-- API接口状态将在这里动态生成 -->
+            </div>
+        </div>
+
+        <!-- 威胁告警列表 -->
+        <div class="card p-6 rounded-lg">
+            <h3 class="text-lg font-semibold mb-4">威胁告警列表</h3>
+            <div id="threat-list" class="space-y-4">
+                <!-- 威胁告警将在这里动态生成 -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket连接
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        
+        // 图表初始化
+        const ctx = document.getElementById('trafficChart').getContext('2d');
+        const trafficChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: '请求数',
+                    data: [],
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: { color: 'white' }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: 'white' },
+                        grid: { color: '#374151' }
+                    },
+                    y: {
+                        ticks: { color: 'white' },
+                        grid: { color: '#374151' }
+                    }
+                }
+            }
+        });
+
+        // 更新当前时间
+        function updateTime() {
+            document.getElementById('current-time').textContent = new Date().toLocaleString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        // WebSocket消息处理
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'update') {
+                updateDashboard(data);
+            }
+        };
+
+        function updateDashboard(data) {
+            // 更新关键指标
+            const totalRequests = data.stats.reduce((sum, stat) => sum + stat.requests, 0);
+            const totalThreats = data.stats.reduce((sum, stat) => sum + stat.threats, 0);
+            const activeThreats = data.threats.filter(t => t.active && (t.severity === 'critical' || t.severity === 'high')).length;
+            const healthyServers = data.servers.filter(s => s.status === 'healthy').length;
+            const avgResponse = data.stats.length > 0 ? 
+                data.stats.reduce((sum, stat) => sum + stat.response_time, 0) / data.stats.length : 0;
+
+            document.getElementById('total-requests').textContent = totalRequests.toLocaleString();
+            document.getElementById('total-threats').textContent = totalThreats;
+            document.getElementById('active-alerts').textContent = `${activeThreats} 个高危告警`;
+            document.getElementById('online-servers').textContent = `${healthyServers}/${data.servers.length}`;
+            document.getElementById('server-issues').textContent = `${data.servers.length - healthyServers} 个异常`;
+            document.getElementById('avg-response').textContent = `${Math.round(avgResponse)}ms`;
+
+            // 更新威胁告警横幅
+            const criticalThreats = data.threats.filter(t => t.active && t.severity === 'critical');
+            const alertDiv = document.getElementById('threat-alerts');
+            if (criticalThreats.length > 0) {
+                alertDiv.classList.remove('hidden');
+                document.getElementById('threat-message').textContent = 
+                    `检测到 ${criticalThreats.length} 个严重威胁，请立即处理！`;
+            } else {
+                alertDiv.classList.add('hidden');
+            }
+
+            // 更新流量图表
+            if (data.stats.length > 0) {
+                const labels = data.stats.map(stat => new Date(stat.timestamp).toLocaleTimeString());
+                const requests = data.stats.map(stat => stat.requests);
+                
+                trafficChart.data.labels = labels;
+                trafficChart.data.datasets[0].data = requests;
+                trafficChart.update('none');
+            }
+
+            // 更新服务器列表
+            updateServerList(data.servers);
+            
+            // 更新API接口列表
+            updateEndpointList(data.endpoints);
+            
+            // 更新威胁列表
+            updateThreatList(data.threats);
+        }
+
+        function updateServerList(servers) {
+            const serverList = document.getElementById('server-list');
+            serverList.innerHTML = servers.map(server => `
+                <div class="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="font-medium">${server.name}</span>
+                            <span class="px-2 py-1 text-xs rounded ${getStatusClass(server.status)}">
+                                ${getStatusText(server.status)}
+                            </span>
+                        </div>
+                        <div class="text-sm text-slate-400">${server.ip}</div>
+                        <div class="flex gap-4 mt-2 text-xs">
+                            <span>CPU: ${server.cpu.toFixed(1)}%</span>
+                            <span>内存: ${server.memory.toFixed(1)}%</span>
+                            <span>请求: ${server.requests.toLocaleString()}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateEndpointList(endpoints) {
+            const endpointList = document.getElementById('endpoint-list');
+            endpointList.innerHTML = endpoints.map(endpoint => `
+                <div class="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            <code class="text-blue-400">${endpoint.endpoint}</code>
+                            <span class="px-2 py-1 text-xs rounded ${getEndpointStatusClass(endpoint.status)}">
+                                ${getEndpointStatusText(endpoint.status)}
+                            </span>
+                        </div>
+                        <div class="text-sm text-slate-400 mt-1">
+                            ${endpoint.requests.toLocaleString()} 请求 | 平均 ${endpoint.avg_response.toFixed(0)}ms
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="font-medium">${endpoint.requests.toLocaleString()}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateThreatList(threats) {
+            const threatList = document.getElementById('threat-list');
+            const activeThreats = threats.filter(t => t.active);
+            
+            if (activeThreats.length === 0) {
+                threatList.innerHTML = '<div class="text-center text-slate-400 py-8">暂无活跃威胁</div>';
+                return;
+            }
+            
+            threatList.innerHTML = activeThreats.map(threat => `
+                <div class="p-4 bg-slate-800 rounded-lg alert-${threat.severity}">
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-2">
+                                <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                                </svg>
+                                <span class="font-medium">${threat.type}</span>
+                                <span class="px-2 py-1 text-xs rounded ${getSeverityClass(threat.severity)}">
+                                    ${getSeverityText(threat.severity)}
+                                </span>
+                            </div>
+                            <div class="space-y-1 text-sm text-slate-300">
+                                <div>目标接口: <code class="text-blue-400">${threat.endpoint}</code></div>
+                                <div>请求数量: <span class="text-red-400 font-medium">${threat.requests.toLocaleString()}</span> 次/${threat.time_window}</div>
+                                <div>来源: <span class="text-yellow-400">${threat.source_ip}</span></div>
+                                <div>检测时间: ${new Date(threat.timestamp).toLocaleString()}</div>
+                            </div>
+                        </div>
+                        <button class="px-3 py-1 text-sm border border-slate-600 rounded hover:bg-slate-700">
+                            处理
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getStatusClass(status) {
+            switch(status) {
+                case 'healthy': return 'bg-green-900 text-green-300';
+                case 'warning': return 'bg-yellow-900 text-yellow-300';
+                case 'critical': return 'bg-red-900 text-red-300';
+                default: return 'bg-slate-700 text-slate-300';
+            }
+        }
+
+        function getStatusText(status) {
+            switch(status) {
+                case 'healthy': return '正常';
+                case 'warning': return '警告';
+                case 'critical': return '异常';
+                default: return '未知';
+            }
+        }
+
+        function getEndpointStatusClass(status) {
+            switch(status) {
+                case 'normal': return 'bg-green-900 text-green-300';
+                case 'suspicious': return 'bg-yellow-900 text-yellow-300';
+                case 'alert': return 'bg-red-900 text-red-300';
+                default: return 'bg-slate-700 text-slate-300';
+            }
+        }
+
+        function getEndpointStatusText(status) {
+            switch(status) {
+                case 'normal': return '正常';
+                case 'suspicious': return '可疑';
+                case 'alert': return '告警';
+                default: return '未知';
+            }
+        }
+
+        function getSeverityClass(severity) {
+            switch(severity) {
+                case 'critical': return 'bg-red-900 text-red-300';
+                case 'high': return 'bg-orange-900 text-orange-300';
+                case 'medium': return 'bg-yellow-900 text-yellow-300';
+                case 'low': return 'bg-blue-900 text-blue-300';
+                default: return 'bg-slate-700 text-slate-300';
+            }
+        }
+
+        function getSeverityText(severity) {
+            switch(severity) {
+                case 'critical': return '严重';
+                case 'high': return '高危';
+                case 'medium': return '中等';
+                case 'low': return '低危';
+                default: return '未知';
+            }
+        }
+
+        ws.onopen = function() {
+            console.log('WebSocket连接已建立');
+        };
+
+        ws.onclose = function() {
+            console.log('WebSocket连接已断开');
+            // 可以在这里添加重连逻辑
+        };
+
+        ws.onerror = function(error) {
+            console.error('WebSocket错误:', error);
+        };
+    </script>
+</body>
+</html>
