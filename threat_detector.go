@@ -1,16 +1,28 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 	"net"
 	"strings"
 	"time"
 )
 
+type ThreatInfo struct {
+	IP            string
+	Country       string
+	ThreatType    string
+	Severity      string
+	Timestamp     time.Time
+	Blocked       bool
+	RequestsCount int
+}
+
 type ThreatDetector struct {
 	recentThreats []ThreatInfo
 	suspiciousIPs map[string]int
 	blockedIPs    map[string]time.Time
+	threats       []ThreatInfo
 }
 
 func NewThreatDetector() *ThreatDetector {
@@ -18,115 +30,44 @@ func NewThreatDetector() *ThreatDetector {
 		recentThreats: make([]ThreatInfo, 0),
 		suspiciousIPs: make(map[string]int),
 		blockedIPs:    make(map[string]time.Time),
+		threats:       make([]ThreatInfo, 0),
 	}
 }
 
+// DetectThreats 检测威胁
 func (td *ThreatDetector) DetectThreats() []ThreatInfo {
-	var newThreats []ThreatInfo
-	
-	// 模拟威胁检测（在实际环境中应该分析真实的网络流量）
-	if rand.Float32() < 0.15 { // 15% 概率检测到威胁
-		threat := td.generateSimulatedThreat()
-		newThreats = append(newThreats, threat)
-		
-		// 添加到最近威胁列表
-		td.recentThreats = append([]ThreatInfo{threat}, td.recentThreats...)
-		if len(td.recentThreats) > 100 {
-			td.recentThreats = td.recentThreats[:100]
+	newThreats := []ThreatInfo{}
+
+	// 随机生成威胁（模拟真实检测）
+	if rand.Intn(100) < 10 { // 10% 概率生成威胁
+		threat := ThreatInfo{
+			IP:            generateRandomIP(),
+			Country:       getRandomCountry(),
+			ThreatType:    getRandomThreatType(),
+			Severity:      getRandomSeverity(),
+			Timestamp:     time.Now(),
+			Blocked:       rand.Intn(2) == 1,
+			RequestsCount: rand.Intn(100) + 1,
 		}
-		
-		// 更新可疑IP计数
-		td.suspiciousIPs[threat.IP]++
-		
-		// 如果IP过于可疑，加入黑名单
-		if td.suspiciousIPs[threat.IP] > 5 {
-			td.blockedIPs[threat.IP] = time.Now()
+
+		td.threats = append(td.threats, threat)
+		newThreats = append(newThreats, threat)
+
+		// 限制威胁列表长度
+		if len(td.threats) > 100 {
+			td.threats = td.threats[1:]
 		}
 	}
-	
+
 	return newThreats
 }
 
-func (td *ThreatDetector) generateSimulatedThreat() ThreatInfo {
-	// 生成随机IP地址
-	ip := td.generateRandomIP()
-	
-	// 威胁类型列表
-	threatTypes := []string{
-		"SQL注入尝试",
-		"暴力破解攻击",
-		"XSS攻击尝试",
-		"端口扫描",
-		"DDoS攻击",
-		"恶意爬虫",
-		"未授权访问",
-		"文件包含攻击",
-		"命令注入",
-		"路径遍历",
-	}
-	
-	// 严重程度列表
-	severities := []string{"LOW", "MEDIUM", "HIGH", "CRITICAL"}
-	
-	// 国家列表
-	countries := []string{
-		"中国", "美国", "俄罗斯", "德国", "英国", 
-		"法国", "日本", "韩国", "印度", "巴西",
-		"未知", "本地",
-	}
-	
-	threat := ThreatInfo{
-		IP:            ip,
-		Country:       countries[rand.Intn(len(countries))],
-		ThreatType:    threatTypes[rand.Intn(len(threatTypes))],
-		Severity:      severities[rand.Intn(len(severities))],
-		Timestamp:     time.Now(),
-		Blocked:       rand.Float32() < 0.7, // 70% 概率被阻止
-		RequestsCount: rand.Intn(20) + 1,
-	}
-	
-	return threat
-}
-
-func (td *ThreatDetector) generateRandomIP() string {
-	// 生成一些常见的可疑IP段
-	suspiciousRanges := []string{
-		"192.168.1.%d",
-		"10.0.0.%d",
-		"172.16.0.%d",
-		"203.%d.%d.%d",
-		"61.%d.%d.%d",
-		"123.%d.%d.%d",
-		"185.%d.%d.%d",
-	}
-	
-	rangeTemplate := suspiciousRanges[rand.Intn(len(suspiciousRanges))]
-	
-	// 根据模板生成IP
-	switch strings.Count(rangeTemplate, "%d") {
-	case 1:
-		return strings.Replace(rangeTemplate, "%d", 
-			string(rune(rand.Intn(254)+1)), 1)
-	case 3:
-		return strings.Replace(
-			strings.Replace(
-				strings.Replace(rangeTemplate, "%d", 
-					string(rune(rand.Intn(254)+1)), 1), "%d", 
-				string(rune(rand.Intn(254)+1)), 1), "%d", 
-			string(rune(rand.Intn(254)+1)), 1)
-	default:
-		// 生成完全随机的IP
-		return net.IPv4(
-			byte(rand.Intn(254)+1),
-			byte(rand.Intn(254)+1),
-			byte(rand.Intn(254)+1),
-			byte(rand.Intn(254)+1),
-		).String()
-	}
-}
-
 func (td *ThreatDetector) GetRecentThreats() []ThreatInfo {
-	return td.recentThreats
+	// 返回最近50个威胁
+	if len(td.threats) <= 50 {
+		return td.threats
+	}
+	return td.threats[len(td.threats)-50:]
 }
 
 func (td *ThreatDetector) IsIPBlocked(ip string) bool {
@@ -146,7 +87,7 @@ func (td *ThreatDetector) GetBlockedIPs() map[string]time.Time {
 func (td *ThreatDetector) AnalyzeTrafficPattern(ip string, requestCount int, timeWindow time.Duration) string {
 	// 简单的流量分析逻辑
 	requestsPerMinute := float64(requestCount) / timeWindow.Minutes()
-	
+
 	if requestsPerMinute > 100 {
 		return "CRITICAL"
 	} else if requestsPerMinute > 50 {
@@ -154,7 +95,7 @@ func (td *ThreatDetector) AnalyzeTrafficPattern(ip string, requestCount int, tim
 	} else if requestsPerMinute > 20 {
 		return "MEDIUM"
 	}
-	
+
 	return "LOW"
 }
 
@@ -167,13 +108,13 @@ func (td *ThreatDetector) CheckMaliciousIP(ip string) bool {
 		"10.0.0.50",
 		"172.16.0.200",
 	}
-	
+
 	for _, maliciousIP := range maliciousIPs {
 		if ip == maliciousIP {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -188,15 +129,15 @@ func (td *ThreatDetector) DetectAnomalousUserAgent(userAgent string) bool {
 		"curl/",
 		"wget/",
 	}
-	
+
 	userAgentLower := strings.ToLower(userAgent)
-	
+
 	for _, pattern := range suspiciousPatterns {
 		if strings.Contains(userAgentLower, pattern) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -215,15 +156,15 @@ func (td *ThreatDetector) DetectSQLInjection(request string) bool {
 		"sp_",
 		"xp_",
 	}
-	
+
 	requestLower := strings.ToLower(request)
-	
+
 	for _, pattern := range sqlPatterns {
 		if strings.Contains(requestLower, pattern) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -240,14 +181,56 @@ func (td *ThreatDetector) DetectXSS(request string) bool {
 		"document.cookie",
 		"document.write",
 	}
-	
+
 	requestLower := strings.ToLower(request)
-	
+
 	for _, pattern := range xssPatterns {
 		if strings.Contains(requestLower, pattern) {
 			return true
 		}
 	}
-	
+
 	return false
+}
+
+// 辅助函数
+
+func generateRandomIP() string {
+	return fmt.Sprintf("%d.%d.%d.%d",
+		rand.Intn(255)+1,
+		rand.Intn(255),
+		rand.Intn(255),
+		rand.Intn(255))
+}
+
+func getRandomCountry() string {
+	countries := []string{"中国", "美国", "俄罗斯", "德国", "英国", "法国", "日本", "韩国", "印度", "巴西"}
+	return countries[rand.Intn(len(countries))]
+}
+
+func getRandomThreatType() string {
+	types := []string{"SQL注入", "XSS攻击", "暴力破解", "DDoS攻击", "端口扫描", "恶意爬虫", "木马植入", "钓鱼攻击"}
+	return types[rand.Intn(len(types))]
+}
+
+func getRandomSeverity() string {
+	severities := []string{"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+	weights := []int{40, 30, 20, 10} // 权重：低40%，中30%，高20%，严重10%
+
+	total := 0
+	for _, w := range weights {
+		total += w
+	}
+
+	r := rand.Intn(total)
+	current := 0
+
+	for i, w := range weights {
+		current += w
+		if r < current {
+			return severities[i]
+		}
+	}
+
+	return "LOW"
 }

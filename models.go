@@ -208,3 +208,42 @@ const (
 	SystemStatusCritical SystemStatus = "critical"
 	SystemStatusDown     SystemStatus = "down"
 )
+
+// SystemMonitor 系统监控器接口
+type SystemMonitor struct {
+	startTime time.Time
+}
+
+// ThreatDetector 威胁检测器
+type ThreatDetector struct {
+	threats []ThreatInfo
+}
+
+// RealDataCollector 真实数据收集器
+type RealDataCollector struct {
+	networkStats NetworkStats
+}
+
+// NewSystemMonitor 创建新的系统监控器
+func NewSystemMonitor() *SystemMonitor {
+	return &SystemMonitor{
+		startTime: time.Now(),
+	}
+}
+
+// NewThreatDetector 创建新的威胁检测器
+func NewThreatDetector() *ThreatDetector {
+	return &ThreatDetector{
+		threats: make([]ThreatInfo, 0),
+	}
+}
+
+// NewRealDataCollector 创建新的数据收集器
+func NewRealDataCollector() *RealDataCollector {
+	return &RealDataCollector{
+		networkStats: NetworkStats{
+			ThreatLevel: "LOW",
+			LastAttack:  "无",
+		},
+	}
+}

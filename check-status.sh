@@ -1,7 +1,7 @@
 #!/bin/bash
 
-echo "📊 天眼监控系统状态检查..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔍 天眼监控系统状态检查"
+echo "======================"
 
 # 检查Go环境
 if command -v go &> /dev/null; then
@@ -31,39 +31,71 @@ else
     echo "❌ go.sum: 不存在"
 fi
 
-# 检查进程
-PIDS=$(pgrep -f "sky-eye-monitor-real")
-if [ -n "$PIDS" ]; then
-    echo "✅ 服务状态: 运行中 (PID: $PIDS)"
-    
-    # 检查端口
-    if lsof -i :8080 > /dev/null 2>&1; then
-        echo "✅ 端口状态: 8080端口已监听"
-    else
-        echo "❌ 端口状态: 8080端口未监听"
-    fi
-    
-    # 获取访问地址
-    LOCAL_IP=$(hostname -I | awk '{print $1}')
-    echo "🌐 访问地址: http://$LOCAL_IP:8080"
-    
+# 检查进程状态
+echo "📊 进程状态:"
+if pgrep -f "sky-eye-monitor-real" > /dev/null; then
+    echo "✅ 监控系统正在运行"
+    echo "   进程ID: $(pgrep -f "sky-eye-monitor-real")"
+    echo "   运行时间: $(ps -o etime= -p $(pgrep -f "sky-eye-monitor-real"))"
 else
-    echo "❌ 服务状态: 未运行"
+    echo "❌ 监控系统未运行"
 fi
 
-# 检查日志
-if [ -f "logs/monitor.log" ]; then
-    echo "📝 日志文件: 存在"
-    echo "最新日志:"
-    tail -n 3 logs/monitor.log
-else
-    echo "⚠️ 日志文件: 不存在"
-fi
-
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "🔧 可用命令:"
-echo "  构建系统: bash complete-fix-go-sum.sh"
-echo "  快速启动: bash quick-start-monitor.sh"
-echo "  查看状态: bash check-status.sh"
-echo "  停止服务: pkill -f sky-eye-monitor-real"
+
+# 检查端口监听
+echo "🔌 端口状态:"
+if netstat -tlnp 2>/dev/null | grep :8080 > /dev/null; then
+    echo "✅ 端口8080正在监听"
+    netstat -tlnp | grep :8080
+else
+    echo "❌ 端口8080未监听"
+fi
+
+echo ""
+
+# 检查API响应
+echo "📡 API状态:"
+if curl -s -f --connect-timeout 5 http://localhost:8080/api/system/info > /dev/null; then
+    echo "✅ API响应正常"
+else
+    echo "❌ API无响应"
+fi
+
+echo ""
+
+# 检查WebSocket
+echo "🔗 WebSocket状态:"
+if command -v wscat &> /dev/null; then
+    if timeout 3 wscat -c ws://localhost:8080/ws > /dev/null 2>&1; then
+        echo "✅ WebSocket连接正常"
+    else
+        echo "❌ WebSocket连接失败"
+    fi
+else
+    echo "ℹ️ 未安装wscat，无法测试WebSocket"
+fi
+
+echo ""
+
+# 显示最近日志
+echo "📋 最近日志 (最后10行):"
+if [ -f "logs/monitor.log" ]; then
+    tail -10 logs/monitor.log
+else
+    echo "❌ 未找到日志文件"
+fi
+
+echo ""
+
+# 显示系统资源使用
+echo "💻 系统资源:"
+echo "   CPU使用率: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)%"
+echo "   内存使用: $(free | grep Mem | awk '{printf "%.1f%%", $3/$2 * 100.0}')"
+echo "   磁盘使用: $(df / | tail -1 | awk '{print $5}')"
+
+echo ""
+echo "🔧 管理命令:"
+echo "   重启服务: sudo ./deploy.sh"
+echo "   查看日志: tail -f logs/monitor.log"
+echo "   停止服务: pkill -f sky-eye-monitor-real"
