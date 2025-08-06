@@ -6,44 +6,48 @@ import (
 
 // SystemMetrics represents system performance metrics
 type SystemMetrics struct {
-	ServerID   string    `json:"server_id"`
-	ServerName string    `json:"server_name"`
-	ServerIP   string    `json:"server_ip"`
-	Timestamp  time.Time `json:"timestamp"`
-	CPU        float64   `json:"cpu"`
-	Memory     float64   `json:"memory"`
-	Disk       float64   `json:"disk"`
-	Network    struct {
-		BytesSent   uint64 `json:"bytes_sent"`
-		BytesRecv   uint64 `json:"bytes_recv"`
-		PacketsSent uint64 `json:"packets_sent"`
-		PacketsRecv uint64 `json:"packets_recv"`
-	} `json:"network"`
-	Status string `json:"status"`
+	ServerID   string       `json:"server_id"`
+	ServerName string       `json:"server_name"`
+	ServerIP   string       `json:"server_ip"`
+	Timestamp  time.Time    `json:"timestamp"`
+	CPU        float64      `json:"cpu"`
+	Memory     float64      `json:"memory"`
+	Disk       float64      `json:"disk"`
+	Network    NetworkStats `json:"network"`
+	Status     string       `json:"status"`
 }
 
-// NetworkConnection represents a network connection
+// NetworkStats holds network IO counters
+type NetworkStats struct {
+	BytesSent   uint64 `json:"bytes_sent"`
+	BytesRecv   uint64 `json:"bytes_recv"`
+	PacketsSent uint64 `json:"packets_sent"`
+	PacketsRecv uint64 `json:"packets_recv"`
+}
+
+// NetworkConnection represents an active network connection
 type NetworkConnection struct {
 	Protocol    string    `json:"protocol"`
 	LocalAddr   string    `json:"local_addr"`
 	RemoteAddr  string    `json:"remote_addr"`
 	State       string    `json:"state"`
-	Port        int       `json:"port"`
+	Port        uint32    `json:"port"`
 	ProcessName string    `json:"process_name"`
+	PID         int32     `json:"pid"`
 	Timestamp   time.Time `json:"timestamp"`
 }
 
-// ProcessInfo represents process information
+// ProcessInfo holds information about a running process
 type ProcessInfo struct {
 	PID       int32     `json:"pid"`
 	Name      string    `json:"name"`
 	CPUUsage  float64   `json:"cpu_usage"`
-	Memory    float64   `json:"memory"`
+	Memory    float32   `json:"memory"`
 	Status    string    `json:"status"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// Threat represents a security threat
+// Threat represents a detected security threat
 type Threat struct {
 	ID          string    `json:"id"`
 	Type        string    `json:"type"`
@@ -55,8 +59,8 @@ type Threat struct {
 	Status      string    `json:"status"`
 }
 
-// AlertInfo represents an alert
-type AlertInfo struct {
+// Alert represents a notification-worthy event
+type Alert struct {
 	ID           string    `json:"id"`
 	Type         string    `json:"type"`
 	Message      string    `json:"message"`
@@ -65,7 +69,7 @@ type AlertInfo struct {
 	Acknowledged bool      `json:"acknowledged"`
 }
 
-// SystemInfo represents system information
+// SystemInfo holds static information about the host system
 type SystemInfo struct {
 	Hostname        string `json:"hostname"`
 	OS              string `json:"os"`

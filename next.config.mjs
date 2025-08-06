@@ -13,11 +13,11 @@ const nextConfig = {
   images: {
     unoptimized: true
   },
-  assetPrefix: '',
+  assetPrefix: process.env.NODE_ENV === 'production' ? '' : '',
   basePath: '',
-  generateEtags: false,
-  poweredByHeader: false,
-  compress: false
+  experimental: {
+    esmExternals: false
+  }
 }
 
 export default nextConfig

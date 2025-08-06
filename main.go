@@ -80,20 +80,20 @@ func (h *Hub) run() {
 }
 
 var (
-	dataCollector  *RealDataCollector
-	threatDetector *ThreatDetector
-	hub            *Hub
-	upgrader = websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			return true // Allow all origins for development
-		},
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-	}
+	dataCollector   *RealDataCollector
+	threatDetector  *ThreatDetector
+	hub             *Hub
+	upgrader        = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	wsConnections   = make(map[*websocket.Conn]bool)
+	wsConnectionsMu = make(chan bool, 1)
 )
 
+func init() {
+	wsConnectionsMu <- true
+}
+
 func main() {
-	log.Println("🚀 Starting Network Monitoring System...")
+	log.Println("🚀 启动天眼网络监控系统...")
 
 	// Initialize components
 	dataCollector = NewRealDataCollector()
@@ -101,10 +101,10 @@ func main() {
 	hub = newHub()
 	go hub.run()
 
-	// Start background data collection and broadcasting
-	go runDataBroadcaster()
+	// Generate some mock threats for demonstration
+	threatDetector.GenerateMockThreats()
 
-	// Create router with proper ordering
+	// Setup routes
 	r := mux.NewRouter()
 
 	// WebSocket endpoint - MUST be defined first and be very specific
@@ -116,40 +116,39 @@ func main() {
 	api.HandleFunc("/system/info", getSystemInfo).Methods("GET")
 	api.HandleFunc("/threats", getThreats).Methods("GET")
 	api.HandleFunc("/alerts", getAlerts).Methods("GET")
-	log.Println("🔌 API endpoints registered: /api/system/info, /api/threats, /api/alerts")
+	api.HandleFunc("/system/metrics", handleSystemMetrics).Methods("GET")
+	api.HandleFunc("/network/connections", handleNetworkConnections).Methods("GET")
+	api.HandleFunc("/processes", handleProcesses).Methods("GET")
+	api.HandleFunc("/agent/metrics", handleAgentMetrics).Methods("POST")
+	log.Println("🔌 API endpoints registered: /api/system/info, /api/threats, /api/alerts, /api/system/metrics, /api/network/connections, /api/processes, /api/agent/metrics")
 
 	// Static file serving - this should be LAST
 	staticDir := "./out"
-	if err := ensureStaticFiles(staticDir); err != nil {
-		log.Printf("⚠️ Warning: %v", err)
+	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+		staticDir = "./static"
 	}
-
-	// Serve static files with proper handling
-	fs := http.FileServer(http.Dir(staticDir))
-	r.PathPrefix("/").Handler(http.StripPrefix("/", fs))
+	
+	r.PathPrefix("/").Handler(http.FileServer(http.Dir(staticDir)))
 	log.Printf("📁 Static files served from: %s", staticDir)
 
-	// Apply middleware
-	r.Use(corsMiddleware)
-	r.Use(loggingMiddleware)
+	// Start background tasks
+	go runDataBroadcaster()
+	go cleanupOldThreats()
 
 	// Server configuration
-	server := &http.Server{
-		Addr:         ":8080",
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
 
-	log.Println("🚀 Network Monitoring System started successfully")
-	log.Printf("🌐 Access URL: http://localhost:8080")
-	log.Printf("🔌 WebSocket URL: ws://localhost:8080/ws")
-	log.Printf("📊 API Base URL: http://localhost:8080/api")
+	log.Printf("🌐 服务器启动在端口 %s", port)
+	log.Printf("📊 访问监控面板: http://localhost:%s", port)
+	log.Printf("🔌 WebSocket端点: ws://localhost:%s/ws", port)
+	log.Printf("📡 API端点: http://localhost:%s/api/", port)
 
 	// Start the server
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal("❌ Server startup failed:", err)
+	if err := http.ListenAndServe(":"+port, r); err != nil {
+		log.Fatal("❌ 服务器启动失败:", err)
 	}
 }
 
@@ -168,7 +167,7 @@ func ensureStaticFiles(staticDir string) error {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Network Monitoring System</title>
+    <title>天眼网络监控系统</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
         .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -182,45 +181,49 @@ func ensureStaticFiles(staticDir string) error {
 </head>
 <body>
     <div class="container">
-        <h1>🔍 Network Monitoring System</h1>
+        <h1>🔍 天眼网络监控系统</h1>
         
         <div class="warning">
-            <strong>⚠️ Frontend Not Built</strong><br>
-            The React frontend has not been built yet. Please run: <code>npm run build</code>
+            <strong>⚠️ 前端未构建</strong><br>
+            请运行: <code>npm run build</code>
         </div>
         
         <div class="status">
-            <strong>✅ Backend Server Running</strong><br>
-            The Go backend server is running successfully and ready to serve data.
+            <strong>✅ 后端服务器运行</strong><br>
+            Go后端服务器正在运行并准备提供数据。
         </div>
         
         <div class="endpoints">
-            <h3>Available Endpoints:</h3>
+            <h3>可用端点:</h3>
             <ul>
-                <li><strong>WebSocket:</strong> <a href="/ws">/ws</a> (Real-time data stream)</li>
-                <li><strong>System Info:</strong> <a href="/api/system/info">/api/system/info</a></li>
-                <li><strong>Threats:</strong> <a href="/api/threats">/api/threats</a></li>
-                <li><strong>Alerts:</strong> <a href="/api/alerts">/api/alerts</a></li>
+                <li><strong>WebSocket:</strong> <a href="/ws">/ws</a> (实时数据流)</li>
+                <li><strong>系统信息:</strong> <a href="/api/system/info">/api/system/info</a></li>
+                <li><strong>威胁:</strong> <a href="/api/threats">/api/threats</a></li>
+                <li><strong>警报:</strong> <a href="/api/alerts">/api/alerts</a></li>
+                <li><strong>系统指标:</strong> <a href="/api/system/metrics">/api/system/metrics</a></li>
+                <li><strong>网络连接:</strong> <a href="/api/network/connections">/api/network/connections</a></li>
+                <li><strong>进程:</strong> <a href="/api/processes">/api/processes</a></li>
+                <li><strong>代理指标:</strong> <a href="/api/agent/metrics">/api/agent/metrics</a></li>
             </ul>
         </div>
         
         <div class="status">
-            <h3>🔧 Development Instructions:</h3>
+            <h3>🔧 开发说明:</h3>
             <ol>
-                <li>Install Node.js dependencies: <code>npm install</code></li>
-                <li>Build the frontend: <code>npm run build</code></li>
-                <li>Restart the Go server to serve the built frontend</li>
+                <li>安装Node.js依赖: <code>npm install</code></li>
+                <li>构建前端: <code>npm run build</code></li>
+                <li>重启Go服务器以提供构建后的前端</li>
             </ol>
         </div>
     </div>
     
     <script>
         // Test WebSocket connection
-        console.log('Testing WebSocket connection...');
+        console.log('测试WebSocket连接...');
         const ws = new WebSocket('ws://localhost:8080/ws');
-        ws.onopen = () => console.log('✅ WebSocket connected successfully');
-        ws.onerror = (error) => console.error('❌ WebSocket error:', error);
-        ws.onmessage = (event) => console.log('📨 WebSocket message:', event.data);
+        ws.onopen = () => console.log('✅ WebSocket连接成功');
+        ws.onerror = (error) => console.error('❌ WebSocket错误:', error);
+        ws.onmessage = (event) => console.log('📨 WebSocket消息:', event.data);
     </script>
 </body>
 </html>`
@@ -229,23 +232,23 @@ func ensureStaticFiles(staticDir string) error {
 			return err
 		}
 		
-		log.Printf("✅ Created fallback HTML at %s/index.html", staticDir)
+		log.Printf("✅ 创建回退HTML在 %s/index.html", staticDir)
 	}
 	return nil
 }
 
 // serveWs handles websocket requests from clients
 func serveWs(w http.ResponseWriter, r *http.Request) {
-	log.Printf("🔌 WebSocket connection attempt from %s", r.RemoteAddr)
+	log.Printf("🔌 WebSocket连接尝试来自 %s", r.RemoteAddr)
 	
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("❌ WebSocket upgrade failed: %v", err)
-		http.Error(w, "WebSocket upgrade failed", http.StatusBadRequest)
+		log.Printf("❌ WebSocket升级失败: %v", err)
+		http.Error(w, "WebSocket升级失败", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("✅ WebSocket connection established from %s", r.RemoteAddr)
+	log.Printf("✅ WebSocket连接建立来自 %s", r.RemoteAddr)
 	hub.register <- conn
 
 	// Handle client messages and disconnection
@@ -265,7 +268,7 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 			_, _, err := conn.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Printf("❌ WebSocket error: %v", err)
+					log.Printf("❌ WebSocket错误: %v", err)
 				}
 				break
 			}
@@ -289,7 +292,7 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 
 // runDataBroadcaster periodically collects and broadcasts data
 func runDataBroadcaster() {
-	log.Println("📡 Starting data broadcaster...")
+	log.Println("📡 启动数据广播器...")
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -307,21 +310,21 @@ func runDataBroadcaster() {
 		if metrics, err := dataCollector.GetSystemMetrics(); err == nil {
 			broadcastMessage("SYSTEM_METRICS_UPDATE", metrics)
 		} else {
-			log.Printf("⚠️ Error getting system metrics: %v", err)
+			log.Printf("⚠️ 获取系统指标错误: %v", err)
 		}
 
 		// Network Connections
 		if connections, err := dataCollector.GetNetworkConnections(); err == nil {
 			broadcastMessage("NETWORK_CONNECTIONS_UPDATE", connections)
 		} else {
-			log.Printf("⚠️ Error getting network connections: %v", err)
+			log.Printf("⚠️ 获取网络连接错误: %v", err)
 		}
 
 		// Processes
 		if processes, err := dataCollector.GetProcesses(); err == nil {
 			broadcastMessage("PROCESSES_UPDATE", processes)
 		} else {
-			log.Printf("⚠️ Error getting processes: %v", err)
+			log.Printf("⚠️ 获取进程错误: %v", err)
 		}
 	}
 }
@@ -332,38 +335,38 @@ func broadcastMessage(msgType string, payload interface{}) {
 		select {
 		case hub.broadcast <- jsonMsg:
 		case <-time.After(time.Second):
-			log.Printf("⚠️ Broadcast timeout for message type: %s", msgType)
+			log.Printf("⚠️ 广播超时，消息类型: %s", msgType)
 		}
 	} else {
-		log.Printf("❌ Error marshalling %s: %v", msgType, err)
+		log.Printf("❌ 序列化 %s 错误: %v", msgType, err)
 	}
 }
 
 // API Handlers
 func getSystemInfo(w http.ResponseWriter, r *http.Request) {
-	log.Printf("📊 API request: %s %s from %s", r.Method, r.URL.Path, getClientIP(r))
+	log.Printf("📊 API请求: %s %s 来自 %s", r.Method, r.URL.Path, getClientIP(r))
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache")
 	
 	data, err := dataCollector.GetSystemInfo()
 	if err != nil {
-		log.Printf("❌ Error getting system info: %v", err)
+		log.Printf("❌ 获取系统信息错误: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error": "%s"}`, err.Error()), http.StatusInternalServerError)
 		return
 	}
 	
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("❌ Error encoding system info: %v", err)
-		http.Error(w, `{"error": "Failed to encode response"}`, http.StatusInternalServerError)
+		log.Printf("❌ 编码系统信息错误: %v", err)
+		http.Error(w, `{"error": "响应编码失败"}`, http.StatusInternalServerError)
 		return
 	}
 	
-	log.Printf("✅ System info sent successfully")
+	log.Printf("✅ 系统信息成功发送")
 }
 
 func getThreats(w http.ResponseWriter, r *http.Request) {
-	log.Printf("🚨 API request: %s %s from %s", r.Method, r.URL.Path, getClientIP(r))
+	log.Printf("🚨 API请求: %s %s 来自 %s", r.Method, r.URL.Path, getClientIP(r))
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -371,16 +374,16 @@ func getThreats(w http.ResponseWriter, r *http.Request) {
 	threats := threatDetector.GetThreats()
 	
 	if err := json.NewEncoder(w).Encode(threats); err != nil {
-		log.Printf("❌ Error encoding threats: %v", err)
-		http.Error(w, `{"error": "Failed to encode response"}`, http.StatusInternalServerError)
+		log.Printf("❌ 编码威胁错误: %v", err)
+		http.Error(w, `{"error": "响应编码失败"}`, http.StatusInternalServerError)
 		return
 	}
 	
-	log.Printf("✅ Threats sent successfully (%d threats)", len(threats))
+	log.Printf("✅ 威胁成功发送 (%d 威胁)", len(threats))
 }
 
 func getAlerts(w http.ResponseWriter, r *http.Request) {
-	log.Printf("🔔 API request: %s %s from %s", r.Method, r.URL.Path, getClientIP(r))
+	log.Printf("🔔 API请求: %s %s 来自 %s", r.Method, r.URL.Path, getClientIP(r))
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -388,12 +391,183 @@ func getAlerts(w http.ResponseWriter, r *http.Request) {
 	alerts := threatDetector.GetAlerts()
 	
 	if err := json.NewEncoder(w).Encode(alerts); err != nil {
-		log.Printf("❌ Error encoding alerts: %v", err)
-		http.Error(w, `{"error": "Failed to encode response"}`, http.StatusInternalServerError)
+		log.Printf("❌ 编码警报错误: %v", err)
+		http.Error(w, `{"error": "响应编码失败"}`, http.StatusInternalServerError)
 		return
 	}
 	
-	log.Printf("✅ Alerts sent successfully (%d alerts)", len(alerts))
+	log.Printf("✅ 警报成功发送 (%d 警报)", len(alerts))
+}
+
+func handleSystemMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	metrics, err := dataCollector.GetSystemMetrics()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get system metrics: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(metrics)
+}
+
+func handleSystemInfo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	info, err := dataCollector.GetSystemInfo()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get system info: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(info)
+}
+
+func handleNetworkConnections(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	connections, err := dataCollector.GetNetworkConnections()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get network connections: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(connections)
+}
+
+func handleProcesses(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	processes, err := dataCollector.GetProcesses()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get processes: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(processes)
+}
+
+func handleThreats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	threats := threatDetector.GetThreats()
+	json.NewEncoder(w).Encode(threats)
+}
+
+func handleAlerts(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	alerts := threatDetector.GetAlerts()
+	json.NewEncoder(w).Encode(alerts)
+}
+
+func handleAgentMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	var metrics SystemMetrics
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("📊 收到代理指标: %s - CPU: %.1f%%, 内存: %.1f%%", 
+		metrics.ServerName, metrics.CPU, metrics.Memory)
+
+	// Broadcast to WebSocket clients
+	broadcastToClients(WebSocketMessage{
+		Type:    "agent_metrics",
+		Payload: metrics,
+	})
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// WebSocket handler
+func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("❌ WebSocket升级失败: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	// Add connection to pool
+	<-wsConnectionsMu
+	wsConnections[conn] = true
+	wsConnectionsMu <- true
+
+	log.Printf("🔌 新的WebSocket连接: %s", r.RemoteAddr)
+
+	// Send initial data
+	if metrics, err := dataCollector.GetSystemMetrics(); err == nil {
+		conn.WriteJSON(WebSocketMessage{
+			Type:    "system_metrics",
+			Payload: metrics,
+		})
+	}
+
+	// Keep connection alive and handle messages
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("🔌 WebSocket连接断开: %v", err)
+			break
+		}
+	}
+
+	// Remove connection from pool
+	<-wsConnectionsMu
+	delete(wsConnections, conn)
+	wsConnectionsMu <- true
+}
+
+// Background tasks
+func broadcastMetrics() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		metrics, err := dataCollector.GetSystemMetrics()
+		if err != nil {
+			log.Printf("❌ 获取系统指标失败: %v", err)
+			continue
+		}
+
+		broadcastToClients(WebSocketMessage{
+			Type:    "system_metrics",
+			Payload: metrics,
+		})
+	}
+}
+
+func cleanupOldThreats() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		threatDetector.ClearOldThreats(24 * time.Hour)
+	}
+}
+
+func broadcastToClients(message WebSocketMessage) {
+	<-wsConnectionsMu
+	defer func() { wsConnectionsMu <- true }()
+
+	for conn := range wsConnections {
+		if err := conn.WriteJSON(message); err != nil {
+			log.Printf("❌ WebSocket发送失败: %v", err)
+			conn.Close()
+			delete(wsConnections, conn)
+		}
+	}
 }
 
 // Middleware
@@ -474,4 +648,25 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+type WebSocketMessage struct {
+	Type    string      `json:"type"`
+	Payload interface{} `json:"payload"`
+}
+
+type SystemMetrics struct {
+	ServerName string  `json:"server_name"`
+	CPU        float64 `json:"cpu"`
+	Memory     float64 `json:"memory"`
+}
+
+type HTTPRequest struct {
+	Method     string    `json:"method"`
+	Path       string    `json:"path"`
+	IP         string    `json:"ip"`
+	UserAgent  string    `json:"user_agent"`
+	StatusCode int       `json:"status_code"`
+	Size       int       `json:"size"`
+	Timestamp  time.Time `json:"timestamp"`
 }
