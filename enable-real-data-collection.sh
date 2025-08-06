@@ -25,6 +25,15 @@ if pgrep -f "network-monitoring" > /dev/null; then
     sleep 2
 fi
 
+# 清理并重新初始化Go模块
+echo "🧹 清理Go模块..."
+rm -f go.sum
+go clean -modcache
+
+echo "📦 重新下载依赖..."
+go mod download
+go mod tidy
+
 # 检查并创建必要的日志目录
 echo "📁 创建日志目录..."
 sudo mkdir -p /var/log/network-monitor
