@@ -1,181 +1,173 @@
 package main
 
 import (
-	"sync"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
-// 系统指标
+// SystemMetrics represents system performance metrics
 type SystemMetrics struct {
-	CPUUsage    float64   `json:"CPUUsage"`
-	MemoryUsage float64   `json:"MemoryUsage"`
-	DiskUsage   float64   `json:"DiskUsage"`
-	NetworkIn   uint64    `json:"NetworkIn"`
-	NetworkOut  uint64    `json:"NetworkOut"`
-	Timestamp   time.Time `json:"Timestamp"`
+	ServerID   string    `json:"server_id"`
+	ServerName string    `json:"server_name"`
+	ServerIP   string    `json:"server_ip"`
+	Timestamp  time.Time `json:"timestamp"`
+	CPU        float64   `json:"cpu"`
+	Memory     float64   `json:"memory"`
+	Disk       float64   `json:"disk"`
+	Network    struct {
+		BytesSent   uint64 `json:"bytes_sent"`
+		BytesRecv   uint64 `json:"bytes_recv"`
+		PacketsSent uint64 `json:"packets_sent"`
+		PacketsRecv uint64 `json:"packets_recv"`
+	} `json:"network"`
+	Status string `json:"status"`
 }
 
-// 网络连接
+// NetworkConnection represents a network connection
 type NetworkConnection struct {
-	Protocol    string    `json:"Protocol"`
-	LocalAddr   string    `json:"LocalAddr"`
-	RemoteAddr  string    `json:"RemoteAddr"`
-	State       string    `json:"State"`
-	Port        int       `json:"Port"`
-	ProcessName string    `json:"ProcessName"`
-	Timestamp   time.Time `json:"Timestamp"`
+	Protocol    string    `json:"protocol"`
+	LocalAddr   string    `json:"local_addr"`
+	RemoteAddr  string    `json:"remote_addr"`
+	State       string    `json:"state"`
+	Port        int       `json:"port"`
+	ProcessName string    `json:"process_name"`
+	Timestamp   time.Time `json:"timestamp"`
 }
 
-// HTTP请求
-type HTTPRequest struct {
-	Method      string    `json:"Method"`
-	Path        string    `json:"Path"`
-	IP          string    `json:"IP"`
-	UserAgent   string    `json:"UserAgent"`
-	StatusCode  int       `json:"StatusCode"`
-	Size        int       `json:"Size"`
-	ThreatScore int       `json:"ThreatScore"`
-	Timestamp   time.Time `json:"Timestamp"`
-}
-
-// 进程信息
+// ProcessInfo represents process information
 type ProcessInfo struct {
-	PID       int       `json:"PID"`
-	Name      string    `json:"Name"`
-	CPUUsage  float64   `json:"CPUUsage"`
-	Memory    float64   `json:"Memory"`
-	Status    string    `json:"Status"`
-	Timestamp time.Time `json:"Timestamp"`
+	PID       int32     `json:"pid"`
+	Name      string    `json:"name"`
+	CPUUsage  float64   `json:"cpu_usage"`
+	Memory    float64   `json:"memory"`
+	Status    string    `json:"status"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
-// 威胁信息
+// Threat represents a security threat
 type Threat struct {
-	ID          string    `json:"ID"`
-	Type        string    `json:"Type"`
-	Severity    string    `json:"Severity"`
-	Source      string    `json:"Source"`
-	Target      string    `json:"Target"`
-	Description string    `json:"Description"`
-	Timestamp   time.Time `json:"Timestamp"`
-	Status      string    `json:"Status"`
+	ID          string    `json:"id"`
+	Type        string    `json:"type"`
+	Severity    string    `json:"severity"`
+	Source      string    `json:"source"`
+	Target      string    `json:"target"`
+	Description string    `json:"description"`
+	Timestamp   time.Time `json:"timestamp"`
+	Status      string    `json:"status"`
 }
 
-// 告警信息
-type Alert struct {
-	ID           string    `json:"ID"`
-	Type         string    `json:"Type"`
-	Message      string    `json:"Message"`
-	Severity     string    `json:"Severity"`
-	Timestamp    time.Time `json:"Timestamp"`
-	Acknowledged bool      `json:"Acknowledged"`
-}
-
-// 流量统计数据
-type TrafficStats struct {
+// AlertInfo represents an alert
+type AlertInfo struct {
+	ID           string    `json:"id"`
+	Type         string    `json:"type"`
+	Message      string    `json:"message"`
+	Severity     string    `json:"severity"`
 	Timestamp    time.Time `json:"timestamp"`
-	Requests     int       `json:"requests"`
-	Threats      int       `json:"threats"`
-	ResponseTime float64   `json:"response_time"`
+	Acknowledged bool      `json:"acknowledged"`
 }
 
-// 服务器状态
+// SystemInfo represents system information
+type SystemInfo struct {
+	Hostname        string `json:"hostname"`
+	OS              string `json:"os"`
+	Platform        string `json:"platform"`
+	Uptime          uint64 `json:"uptime"`
+	CPUModel        string `json:"cpu_model"`
+	CPUCores        int    `json:"cpu_cores"`
+	TotalMemory     uint64 `json:"total_memory"`
+	RealDataEnabled bool   `json:"real_data_enabled"`
+}
+
+// HTTPRequest represents an HTTP request for threat analysis
+type HTTPRequest struct {
+	Method     string    `json:"method"`
+	Path       string    `json:"path"`
+	IP         string    `json:"ip"`
+	UserAgent  string    `json:"user_agent"`
+	StatusCode int       `json:"status_code"`
+	Size       int64     `json:"size"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
+// WebSocketMessage represents a WebSocket message
+type WebSocketMessage struct {
+	Type    string      `json:"type"`
+	Payload interface{} `json:"payload"`
+}
+
+// ServerStatus represents server status information
 type ServerStatus struct {
 	ID       string    `json:"id"`
 	Name     string    `json:"name"`
 	IP       string    `json:"ip"`
-	Status   string    `json:"status"` // healthy, warning, critical
-	CPU      float64   `json:"cpu"`
-	Memory   float64   `json:"memory"`
-	Requests int       `json:"requests"`
+	Status   string    `json:"status"`
+	Uptime   uint64    `json:"uptime"`
 	LastSeen time.Time `json:"last_seen"`
 }
 
-// API端点统计
+// EndpointStats represents endpoint statistics
 type EndpointStats struct {
-	Endpoint     string    `json:"endpoint"`
-	Requests     int       `json:"requests"`
-	AvgResponse  float64   `json:"avg_response"`
-	Status       string    `json:"status"` // normal, suspicious, alert
-	LastRequest  time.Time `json:"last_request"`
-	RequestRate  float64   `json:"request_rate"` // 每分钟请求数
-}
-
-// 威胁告警
-type ThreatAlert struct {
-	ID             int             `json:"id"`
-	Type           string          `json:"type"`        // DDoS, BruteForce, RateLimit
-	Severity       string          `json:"severity"`    // critical, high, medium, low
-	Endpoint       string          `json:"endpoint"`
-	Requests       int             `json:"requests"`
-	TimeWindow     string          `json:"time_window"`
-	SourceIP       string          `json:"source_ip"`
-	Timestamp      time.Time       `json:"timestamp"`
-	Description    string          `json:"description"`
-	Active         bool            `json:"active"`
-	RequestDetails []RequestDetail `json:"request_details,omitempty"`
-}
-
-// 网络监控器
-type NetworkMonitor struct {
-	mu             sync.RWMutex
-	trafficData    []TrafficStats
-	servers        map[string]*ServerStatus
-	endpoints      map[string]*EndpointStats
-	clients        map[*WSClient]bool
-	requestChan    chan RequestEvent
-	maxDataPoints  int
-	requestDetails []RequestDetail
-	detailsMutex   sync.RWMutex
-}
-
-// 威胁检测器
-type ThreatDetector struct {
-	mu           sync.RWMutex
-	alerts       []ThreatAlert
-	requestCount map[string]map[string]int // endpoint -> IP -> count
-	timeWindows  map[string]time.Time      // endpoint -> last reset time
-	alertID      int
-
-	// 新增字段用于真实威胁检测
-	ipFailCount  map[string]int       // IP -> 失败次数
-	ipLastFail   map[string]time.Time // IP -> 最后失败时间
-	systemErrors []string             // 系统错误日志
-	processDown  []string             // 停止的进程
-}
-
-// 请求事件
-type RequestEvent struct {
-	Endpoint     string
-	IP           string
-	ResponseTime float64
-	Timestamp    time.Time
-	UserAgent    string
-}
-
-// WebSocket客户端
-type WSClient struct {
-	conn     *websocket.Conn
-	send     chan []byte
-	monitor  *NetworkMonitor
-	detector *ThreatDetector
-	done     chan struct{}
-}
-
-// 请求详情
-type RequestDetail struct {
-	ID           int       `json:"id"`
-	Timestamp    time.Time `json:"timestamp"`
-	IP           string    `json:"ip"`
+	Path         string    `json:"path"`
 	Method       string    `json:"method"`
-	Endpoint     string    `json:"endpoint"`
-	StatusCode   int       `json:"status_code"`
-	ResponseTime int       `json:"response_time"`
-	UserAgent    string    `json:"user_agent"`
-	RequestSize  int       `json:"request_size"`
-	ResponseSize int       `json:"response_size"`
-	Referer      string    `json:"referer"`
-	Country      string    `json:"country"`
-	IsSuspicious bool      `json:"is_suspicious"`
+	RequestCount int64     `json:"request_count"`
+	ErrorCount   int64     `json:"error_count"`
+	AvgResponse  float64   `json:"avg_response_time"`
+	LastAccess   time.Time `json:"last_access"`
 }
+
+// RequestDetail represents detailed request information
+type RequestDetail struct {
+	ID         string            `json:"id"`
+	Method     string            `json:"method"`
+	Path       string            `json:"path"`
+	IP         string            `json:"ip"`
+	UserAgent  string            `json:"user_agent"`
+	Headers    map[string]string `json:"headers"`
+	StatusCode int               `json:"status_code"`
+	Size       int64             `json:"size"`
+	Duration   time.Duration     `json:"duration"`
+	Timestamp  time.Time         `json:"timestamp"`
+}
+
+// ThreatLevel represents threat severity levels
+type ThreatLevel string
+
+const (
+	ThreatLevelLow      ThreatLevel = "low"
+	ThreatLevelMedium   ThreatLevel = "medium"
+	ThreatLevelHigh     ThreatLevel = "high"
+	ThreatLevelCritical ThreatLevel = "critical"
+)
+
+// ThreatType represents different types of threats
+type ThreatType string
+
+const (
+	ThreatTypeSQLInjection     ThreatType = "sql_injection"
+	ThreatTypeXSS              ThreatType = "xss"
+	ThreatTypePathTraversal    ThreatType = "path_traversal"
+	ThreatTypeBruteForce       ThreatType = "brute_force"
+	ThreatTypeCommandInjection ThreatType = "command_injection"
+	ThreatTypeUnauthorized     ThreatType = "unauthorized_access"
+	ThreatTypeSuspicious       ThreatType = "suspicious_activity"
+	ThreatTypeScanning         ThreatType = "scanning_tool"
+)
+
+// AlertType represents different types of alerts
+type AlertType string
+
+const (
+	AlertTypeSecurity    AlertType = "security"
+	AlertTypePerformance AlertType = "performance"
+	AlertTypeSystem      AlertType = "system"
+	AlertTypeNetwork     AlertType = "network"
+)
+
+// SystemStatus represents overall system status
+type SystemStatus string
+
+const (
+	SystemStatusHealthy  SystemStatus = "healthy"
+	SystemStatusWarning  SystemStatus = "warning"
+	SystemStatusCritical SystemStatus = "critical"
+	SystemStatusDown     SystemStatus = "down"
+)

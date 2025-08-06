@@ -2,365 +2,196 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"math/rand"
 	"sync"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
+// NewNetworkMonitor 创建网络监控器
 func NewNetworkMonitor() *NetworkMonitor {
 	return &NetworkMonitor{
-		trafficData:    make([]TrafficStats, 0),
+		trafficData:    []TrafficStats{},
 		servers:        make(map[string]*ServerStatus),
 		endpoints:      make(map[string]*EndpointStats),
 		clients:        make(map[*WSClient]bool),
-		requestChan:    make(chan RequestEvent, 1000),
+		requestChan:    make(chan RequestEvent, 100),
 		maxDataPoints:  100,
-		requestDetails: make([]RequestDetail, 0),
+		requestDetails: []RequestDetail{},
 	}
 }
 
+// Start 启动网络监控器
 func (nm *NetworkMonitor) Start() {
-	go nm.generateTrafficData()
-	go nm.generateServerData()
-	go nm.generateEndpointData()
-	go nm.generateRequestDetails()
+	log.Println("📊 网络监控器启动")
+	
+	// 启动数据收集
+	go nm.collectTrafficData()
 	go nm.processRequests()
-	log.Println("网络监控器已启动")
+	go nm.broadcastData()
 }
 
-func (nm *NetworkMonitor) generateTrafficData() {
+// collectTrafficData 收集流量数据
+func (nm *NetworkMonitor) collectTrafficData() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-
+	
 	for range ticker.C {
 		nm.mu.Lock()
 		
-		// 生成模拟数据
+		// 生成模拟流量数据
 		stats := TrafficStats{
 			Timestamp:    time.Now(),
-			Requests:     rand.Intn(1000) + 500,
-			Threats:      rand.Intn(50),
-			ResponseTime: rand.Float64()*200 + 50,
+			Requests:     rand.Intn(100) + 50,
+			Threats:      rand.Intn(10),
+			ResponseTime: rand.Float64()*100 + 50,
 		}
-
+		
 		nm.trafficData = append(nm.trafficData, stats)
 		
-		// 保持最大数据点数量
+		// 保持数据点数量限制
 		if len(nm.trafficData) > nm.maxDataPoints {
 			nm.trafficData = nm.trafficData[1:]
 		}
 		
 		nm.mu.Unlock()
-		
-		// 广播数据到所有客户端
-		nm.broadcastTrafficData(stats)
 	}
 }
 
-func (nm *NetworkMonitor) generateServerData() {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	servers := []struct {
-		id   string
-		name string
-		ip   string
-	}{
-		{"srv-001", "Web服务器-1", "192.168.1.10"},
-		{"srv-002", "API服务器-1", "192.168.1.20"},
-		{"srv-003", "数据库服务器", "192.168.1.30"},
-		{"srv-004", "缓存服务器", "192.168.1.40"},
-		{"srv-005", "负载均衡器", "192.168.1.50"},
-	}
-
-	for range ticker.C {
-		nm.mu.Lock()
-		
-		for _, srv := range servers {
-			status := nm.generateServerStatus(srv.id, srv.name, srv.ip)
-			nm.servers[srv.id] = status
-		}
-		
-		nm.mu.Unlock()
-		nm.broadcastServerData()
-	}
-}
-
-func (nm *NetworkMonitor) generateServerStatus(id, name, ip string) *ServerStatus {
-	statuses := []string{"healthy", "warning", "critical"}
-	weights := []int{70, 25, 5} // 权重：健康70%，警告25%，严重5%
-	
-	status := nm.weightedRandomChoice(statuses, weights)
-	
-	var cpu, memory float64
-	switch status {
-	case "healthy":
-		cpu = rand.Float64()*30 + 10    // 10-40%
-		memory = rand.Float64()*40 + 20 // 20-60%
-	case "warning":
-		cpu = rand.Float64()*30 + 60    // 60-90%
-		memory = rand.Float64()*25 + 65 // 65-90%
-	case "critical":
-		cpu = rand.Float64()*10 + 90    // 90-100%
-		memory = rand.Float64()*10 + 90 // 90-100%
-	}
-
-	return &ServerStatus{
-		ID:       id,
-		Name:     name,
-		IP:       ip,
-		Status:   status,
-		CPU:      cpu,
-		Memory:   memory,
-		Requests: rand.Intn(5000) + 1000,
-		LastSeen: time.Now(),
-	}
-}
-
-func (nm *NetworkMonitor) generateEndpointData() {
-	ticker := time.NewTicker(8 * time.Second)
-	defer ticker.Stop()
-
-	endpoints := []string{
-		"/api/users", "/api/orders", "/api/products", "/api/search",
-		"/api/login", "/api/logout", "/api/dashboard", "/api/reports",
-		"/api/upload", "/api/download", "/api/settings", "/api/notifications",
-	}
-
-	for range ticker.C {
-		nm.mu.Lock()
-		
-		for _, endpoint := range endpoints {
-			stats := nm.generateEndpointStats(endpoint)
-			nm.endpoints[endpoint] = stats
-		}
-		
-		nm.mu.Unlock()
-		nm.broadcastEndpointData()
-	}
-}
-
-func (nm *NetworkMonitor) generateEndpointStats(endpoint string) *EndpointStats {
-	statuses := []string{"normal", "suspicious", "alert"}
-	weights := []int{80, 15, 5}
-	
-	status := nm.weightedRandomChoice(statuses, weights)
-	
-	var requests int
-	var avgResponse float64
-	
-	switch status {
-	case "normal":
-		requests = rand.Intn(1000) + 100
-		avgResponse = rand.Float64()*100 + 50
-	case "suspicious":
-		requests = rand.Intn(3000) + 1000
-		avgResponse = rand.Float64()*200 + 100
-	case "alert":
-		requests = rand.Intn(10000) + 5000
-		avgResponse = rand.Float64()*500 + 200
-	}
-
-	return &EndpointStats{
-		Endpoint:     endpoint,
-		Requests:     requests,
-		AvgResponse:  avgResponse,
-		Status:       status,
-		LastRequest:  time.Now(),
-		RequestRate:  float64(requests) / 60.0, // 每分钟请求数
-	}
-}
-
-func (nm *NetworkMonitor) generateRequestDetails() {
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	userAgents := []string{
-		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-		"curl/7.68.0",
-		"PostmanRuntime/7.28.4",
-		"python-requests/2.25.1",
-	}
-
-	methods := []string{"GET", "POST", "PUT", "DELETE", "PATCH"}
-	endpoints := []string{
-		"/api/users", "/api/orders", "/api/products", "/api/search",
-		"/api/login", "/api/logout", "/api/dashboard", "/api/reports",
-	}
-
-	countries := []string{"中国", "美国", "日本", "德国", "英国", "法国", "俄罗斯", "未知"}
-
-	id := 1
-	for range ticker.C {
-		nm.detailsMutex.Lock()
-		
-		// 生成1-5个请求详情
-		count := rand.Intn(5) + 1
-		for i := 0; i < count; i++ {
-			detail := RequestDetail{
-				ID:           id,
-				Timestamp:    time.Now(),
-				IP:           nm.generateRandomIP(),
-				Method:       methods[rand.Intn(len(methods))],
-				Endpoint:     endpoints[rand.Intn(len(endpoints))],
-				StatusCode:   nm.generateStatusCode(),
-				ResponseTime: rand.Intn(2000) + 50,
-				UserAgent:    userAgents[rand.Intn(len(userAgents))],
-				RequestSize:  rand.Intn(10000) + 100,
-				ResponseSize: rand.Intn(50000) + 500,
-				Referer:      "https://example.com",
-				Country:      countries[rand.Intn(len(countries))],
-				IsSuspicious: rand.Float32() < 0.1, // 10%概率为可疑
-			}
-			
-			nm.requestDetails = append(nm.requestDetails, detail)
-			id++
-		}
-		
-		// 保持最大1000条记录
-		if len(nm.requestDetails) > 1000 {
-			nm.requestDetails = nm.requestDetails[len(nm.requestDetails)-1000:]
-		}
-		
-		nm.detailsMutex.Unlock()
-		nm.broadcastRequestDetails()
-	}
-}
-
-func (nm *NetworkMonitor) generateRandomIP() string {
-	return fmt.Sprintf("%d.%d.%d.%d", 
-		rand.Intn(255)+1, 
-		rand.Intn(255), 
-		rand.Intn(255), 
-		rand.Intn(255))
-}
-
-func (nm *NetworkMonitor) generateStatusCode() int {
-	codes := []int{200, 201, 204, 400, 401, 403, 404, 500, 502, 503}
-	weights := []int{60, 10, 5, 8, 5, 3, 4, 2, 2, 1}
-	
-	return nm.weightedRandomChoiceInt(codes, weights)
-}
-
-func (nm *NetworkMonitor) weightedRandomChoice(choices []string, weights []int) string {
-	total := 0
-	for _, w := range weights {
-		total += w
-	}
-	
-	r := rand.Intn(total)
-	for i, w := range weights {
-		r -= w
-		if r < 0 {
-			return choices[i]
-		}
-	}
-	return choices[0]
-}
-
-func (nm *NetworkMonitor) weightedRandomChoiceInt(choices []int, weights []int) int {
-	total := 0
-	for _, w := range weights {
-		total += w
-	}
-	
-	r := rand.Intn(total)
-	for i, w := range weights {
-		r -= w
-		if r < 0 {
-			return choices[i]
-		}
-	}
-	return choices[0]
-}
-
+// processRequests 处理请求事件
 func (nm *NetworkMonitor) processRequests() {
 	for event := range nm.requestChan {
-		// 处理请求事件
-		log.Printf("处理请求: %s from %s", event.Endpoint, event.IP)
+		nm.updateEndpointStats(event)
+		nm.addRequestDetail(event)
 	}
 }
 
-// 客户端管理方法
-func (nm *NetworkMonitor) RegisterClient(client *WSClient) {
-	nm.mu.Lock()
-	nm.clients[client] = true
-	nm.mu.Unlock()
-	log.Printf("新客户端连接，当前连接数: %d", len(nm.clients))
-}
-
-func (nm *NetworkMonitor) UnregisterClient(client *WSClient) {
-	nm.mu.Lock()
-	delete(nm.clients, client)
-	nm.mu.Unlock()
-	log.Printf("客户端断开连接，当前连接数: %d", len(nm.clients))
-}
-
-// 数据获取方法 - handlers.go需要的方法
-func (nm *NetworkMonitor) GetCurrentStats() []TrafficStats {
-	nm.mu.RLock()
-	defer nm.mu.RUnlock()
-	
-	data := make([]TrafficStats, len(nm.trafficData))
-	copy(data, nm.trafficData)
-	return data
-}
-
-func (nm *NetworkMonitor) GetServerStatus() []*ServerStatus {
-	nm.mu.RLock()
-	defer nm.mu.RUnlock()
-	
-	servers := make([]*ServerStatus, 0, len(nm.servers))
-	for _, server := range nm.servers {
-		servers = append(servers, server)
-	}
-	return servers
-}
-
-func (nm *NetworkMonitor) GetEndpointStats() []*EndpointStats {
-	nm.mu.RLock()
-	defer nm.mu.RUnlock()
-	
-	endpoints := make([]*EndpointStats, 0, len(nm.endpoints))
-	for _, endpoint := range nm.endpoints {
-		endpoints = append(endpoints, endpoint)
-	}
-	return endpoints
-}
-
-func (nm *NetworkMonitor) GetRequestDetails() []RequestDetail {
-	nm.detailsMutex.RLock()
-	defer nm.detailsMutex.RUnlock()
-	
-	details := make([]RequestDetail, len(nm.requestDetails))
-	copy(details, nm.requestDetails)
-	return details
-}
-
-func (nm *NetworkMonitor) GetRequestDetailsByEndpoint(endpoint string) []RequestDetail {
-	nm.detailsMutex.RLock()
-	defer nm.detailsMutex.RUnlock()
-	
-	var filtered []RequestDetail
-	for _, detail := range nm.requestDetails {
-		if detail.Endpoint == endpoint {
-			filtered = append(filtered, detail)
-		}
-	}
-	return filtered
-}
-
-// 代理更新方法 - main.go需要的方法
-func (nm *NetworkMonitor) UpdateServerFromAgent(metrics *SystemMetrics) {
+// updateEndpointStats 更新端点统计
+func (nm *NetworkMonitor) updateEndpointStats(event RequestEvent) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
+	
+	endpoint := event.Endpoint
+	if nm.endpoints[endpoint] == nil {
+		nm.endpoints[endpoint] = &EndpointStats{
+			Endpoint:    endpoint,
+			Requests:    0,
+			AvgResponse: 0,
+			Status:      "normal",
+			LastRequest: time.Now(),
+			RequestRate: 0,
+		}
+	}
+	
+	stats := nm.endpoints[endpoint]
+	stats.Requests++
+	stats.AvgResponse = (stats.AvgResponse + event.ResponseTime) / 2
+	stats.LastRequest = event.Timestamp
+	
+	// 计算请求速率（每分钟）
+	stats.RequestRate = float64(stats.Requests) / time.Since(stats.LastRequest).Minutes()
+	
+	// 确定状态
+	if stats.RequestRate > 100 {
+		stats.Status = "alert"
+	} else if stats.RequestRate > 50 {
+		stats.Status = "suspicious"
+	} else {
+		stats.Status = "normal"
+	}
+}
 
+// addRequestDetail 添加请求详情
+func (nm *NetworkMonitor) addRequestDetail(event RequestEvent) {
+	nm.detailsMutex.Lock()
+	defer nm.detailsMutex.Unlock()
+	
+	detail := RequestDetail{
+		ID:           len(nm.requestDetails) + 1,
+		Timestamp:    event.Timestamp,
+		IP:           event.IP,
+		Method:       "GET",
+		Endpoint:     event.Endpoint,
+		StatusCode:   200,
+		ResponseTime: int(event.ResponseTime),
+		UserAgent:    event.UserAgent,
+		RequestSize:  rand.Intn(1000),
+		ResponseSize: rand.Intn(5000),
+		Referer:      "",
+		Country:      "Unknown",
+		IsSuspicious: false,
+	}
+	
+	nm.requestDetails = append(nm.requestDetails, detail)
+	
+	// 保持最近1000条记录
+	if len(nm.requestDetails) > 1000 {
+		nm.requestDetails = nm.requestDetails[1:]
+	}
+}
+
+// broadcastData 广播数据到WebSocket客户端
+func (nm *NetworkMonitor) broadcastData() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	
+	for range ticker.C {
+		nm.mu.RLock()
+		
+		data := map[string]interface{}{
+			"type":      "update",
+			"timestamp": time.Now(),
+			"traffic":   nm.trafficData,
+			"servers":   nm.servers,
+			"endpoints": nm.endpoints,
+		}
+		
+		message, err := json.Marshal(data)
+		if err != nil {
+			nm.mu.RUnlock()
+			continue
+		}
+		
+		// 发送给所有连接的客户端
+		for client := range nm.clients {
+			select {
+			case client.send <- message:
+			default:
+				close(client.send)
+				delete(nm.clients, client)
+			}
+		}
+		
+		nm.mu.RUnlock()
+	}
+}
+
+// AddClient 添加WebSocket客户端
+func (nm *NetworkMonitor) AddClient(client *WSClient) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	
+	nm.clients[client] = true
+	log.Printf("WebSocket客户端连接，当前连接数: %d", len(nm.clients))
+}
+
+// RemoveClient 移除WebSocket客户端
+func (nm *NetworkMonitor) RemoveClient(client *WSClient) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	
+	if _, ok := nm.clients[client]; ok {
+		delete(nm.clients, client)
+		close(client.send)
+		log.Printf("WebSocket客户端断开，当前连接数: %d", len(nm.clients))
+	}
+}
+
+// UpdateServerMetrics 更新服务器指标
+func (nm *NetworkMonitor) UpdateServerMetrics(metrics SystemMetrics) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	
 	server := &ServerStatus{
 		ID:       metrics.ServerID,
 		Name:     metrics.ServerName,
@@ -368,137 +199,58 @@ func (nm *NetworkMonitor) UpdateServerFromAgent(metrics *SystemMetrics) {
 		Status:   metrics.Status,
 		CPU:      metrics.CPU,
 		Memory:   metrics.Memory,
-		Requests: 0, // 这里可以从代理获取请求数
+		Requests: rand.Intn(1000),
 		LastSeen: metrics.Timestamp,
 	}
-
-	nm.servers[server.ID] = server
-	log.Printf("更新服务器状态: %s (%s) - CPU: %.1f%%, 内存: %.1f%%",
-		server.Name, server.IP, server.CPU, server.Memory)
+	
+	nm.servers[metrics.ServerID] = server
 }
 
-// 广播方法
-func (nm *NetworkMonitor) broadcastTrafficData(stats TrafficStats) {
-	message := map[string]interface{}{
-		"type": "traffic",
-		"data": stats,
-	}
-	nm.broadcast(message)
-}
-
-func (nm *NetworkMonitor) broadcastServerData() {
+// GetServers 获取服务器列表
+func (nm *NetworkMonitor) GetServers() []*ServerStatus {
 	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+	
 	servers := make([]*ServerStatus, 0, len(nm.servers))
 	for _, server := range nm.servers {
 		servers = append(servers, server)
 	}
-	nm.mu.RUnlock()
-
-	message := map[string]interface{}{
-		"type": "servers",
-		"data": servers,
-	}
-	nm.broadcast(message)
+	
+	return servers
 }
 
-func (nm *NetworkMonitor) broadcastEndpointData() {
+// GetEndpoints 获取端点列表
+func (nm *NetworkMonitor) GetEndpoints() []*EndpointStats {
 	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+	
 	endpoints := make([]*EndpointStats, 0, len(nm.endpoints))
 	for _, endpoint := range nm.endpoints {
 		endpoints = append(endpoints, endpoint)
 	}
-	nm.mu.RUnlock()
-
-	message := map[string]interface{}{
-		"type": "endpoints",
-		"data": endpoints,
-	}
-	nm.broadcast(message)
+	
+	return endpoints
 }
 
-func (nm *NetworkMonitor) broadcastRequestDetails() {
+// GetRequestDetails 获取请求详情
+func (nm *NetworkMonitor) GetRequestDetails() []RequestDetail {
 	nm.detailsMutex.RLock()
-	// 只发送最新的10条记录
-	var recentDetails []RequestDetail
-	if len(nm.requestDetails) > 10 {
-		recentDetails = nm.requestDetails[len(nm.requestDetails)-10:]
-	} else {
-		recentDetails = nm.requestDetails
+	defer nm.detailsMutex.RUnlock()
+	
+	// 返回最近100条记录
+	start := 0
+	if len(nm.requestDetails) > 100 {
+		start = len(nm.requestDetails) - 100
 	}
-	nm.detailsMutex.RUnlock()
-
-	message := map[string]interface{}{
-		"type": "requests",
-		"data": recentDetails,
-	}
-	nm.broadcast(message)
+	
+	return nm.requestDetails[start:]
 }
 
-func (nm *NetworkMonitor) broadcast(message interface{}) {
-	data, err := json.Marshal(message)
-	if err != nil {
-		log.Printf("序列化消息失败: %v", err)
-		return
-	}
-
-	nm.mu.RLock()
-	clients := make([]*WSClient, 0, len(nm.clients))
-	for client := range nm.clients {
-		clients = append(clients, client)
-	}
-	nm.mu.RUnlock()
-
-	for _, client := range clients {
-		select {
-		case client.send <- data:
-		default:
-			// 客户端发送缓冲区满，移除客户端
-			nm.UnregisterClient(client)
-			close(client.send)
-		}
-	}
-}
-
-// WebSocket客户端方法 - main.go需要的方法
-func (client *WSClient) SendJSON(data interface{}) error {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-
+// AddRequestEvent 添加请求事件
+func (nm *NetworkMonitor) AddRequestEvent(event RequestEvent) {
 	select {
-	case client.send <- jsonData:
-		return nil
+	case nm.requestChan <- event:
 	default:
-		return nil // 客户端发送缓冲区满
-	}
-}
-
-func (client *WSClient) writePump() {
-	defer client.conn.Close()
-
-	for {
-		select {
-		case message, ok := <-client.send:
-			if !ok {
-				client.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
-			client.conn.WriteMessage(websocket.TextMessage, message)
-		}
-	}
-}
-
-func (client *WSClient) readPump() {
-	defer func() {
-		close(client.done)
-		client.conn.Close()
-	}()
-
-	for {
-		_, _, err := client.conn.ReadMessage()
-		if err != nil {
-			break
-		}
+		log.Println("请求通道已满，丢弃事件")
 	}
 }

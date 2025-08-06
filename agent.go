@@ -16,24 +16,6 @@ import (
 	"github.com/shirou/gopsutil/v3/net"
 )
 
-// SystemMetrics 系统指标结构
-type SystemMetrics struct {
-	ServerID   string    `json:"server_id"`
-	ServerName string    `json:"server_name"`
-	ServerIP   string    `json:"server_ip"`
-	Timestamp  time.Time `json:"timestamp"`
-	CPU        float64   `json:"cpu"`
-	Memory     float64   `json:"memory"`
-	Disk       float64   `json:"disk"`
-	Network    struct {
-		BytesSent   uint64 `json:"bytes_sent"`
-		BytesRecv   uint64 `json:"bytes_recv"`
-		PacketsSent uint64 `json:"packets_sent"`
-		PacketsRecv uint64 `json:"packets_recv"`
-	} `json:"network"`
-	Status string `json:"status"`
-}
-
 func runAgent() {
 	log.Println("🤖 启动天眼代理模式...")
 	

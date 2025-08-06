@@ -1,329 +1,202 @@
 package main
 
 import (
-	"log"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
 
+// ThreatDetector detects security threats
+type ThreatDetector struct {
+	threats []Threat
+	alerts  []AlertInfo
+	mu      sync.RWMutex
+}
+
+// NewThreatDetector creates a new threat detector
 func NewThreatDetector() *ThreatDetector {
 	return &ThreatDetector{
-		mu:           sync.RWMutex{},
-		alerts:       make([]ThreatAlert, 0),
-		requestCount: make(map[string]map[string]int),
-		timeWindows:  make(map[string]time.Time),
-		alertID:      1,
-		ipFailCount:  make(map[string]int),
-		ipLastFail:   make(map[string]time.Time),
-		systemErrors: make([]string, 0),
-		processDown:  make([]string, 0),
+		threats: make([]Threat, 0),
+		alerts:  make([]AlertInfo, 0),
 	}
 }
 
-func (td *ThreatDetector) Start() {
-	go td.monitorThreats()
-	log.Println("威胁检测器已启动")
-}
+// AnalyzeHTTPRequest analyzes an HTTP request for threats
+func (t *ThreatDetector) AnalyzeHTTPRequest(req HTTPRequest) (bool, *Threat) {
+	// Check for suspicious patterns
+	suspiciousPatterns := []string{
+		"../", "..\\", "/etc/passwd", "/etc/shadow", "cmd.exe", "powershell",
+		"<script", "javascript:", "onload=", "onerror=", "eval(",
+		"union select", "drop table", "insert into", "delete from",
+		"wp-admin", "phpmyadmin", "admin.php", "login.php",
+		".env", "config.php", "database.yml", "secrets.json",
+	}
 
-func (td *ThreatDetector) monitorThreats() {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+	var threatType string
+	var description string
+	severity := "low"
 
-	for range ticker.C {
-		td.analyzeThreats()
-		td.cleanupOldAlerts()
-	}
-}
+	path := strings.ToLower(req.Path)
+	userAgent := strings.ToLower(req.UserAgent)
 
-// 处理真实请求
-func (td *ThreatDetector) processRequest(ip, endpoint string, statusCode int) {
-	td.mu.Lock()
-	defer td.mu.Unlock()
-	
-	// 初始化数据结构
-	if td.requestCount[endpoint] == nil {
-		td.requestCount[endpoint] = make(map[string]int)
-	}
-	
-	td.requestCount[endpoint][ip]++
-	
-	// 检查是否需要重置时间窗口
-	if lastReset, exists := td.timeWindows[endpoint]; !exists || time.Since(lastReset) > 5*time.Minute {
-		td.timeWindows[endpoint] = time.Now()
-		td.requestCount[endpoint] = make(map[string]int)
-		td.requestCount[endpoint][ip] = 1
-	}
-	
-	// 检测异常请求频率
-	if td.requestCount[endpoint][ip] > 100 { // 5分钟内超过100次请求
-		td.CreateThreatAlert("RateLimit", "high", endpoint, ip, 
-			td.requestCount[endpoint][ip], "检测到异常高频请求", nil)
-	}
-	
-	// 检测HTTP错误
-	if statusCode >= 400 {
-		td.checkHTTPErrors(ip, endpoint, statusCode)
-	}
-}
-
-// 记录登录失败
-func (td *ThreatDetector) recordFailedLogin(ip string) {
-	td.mu.Lock()
-	defer td.mu.Unlock()
-	
-	td.ipFailCount[ip]++
-	td.ipLastFail[ip] = time.Now()
-	
-	// 检测暴力破解攻击
-	if td.ipFailCount[ip] > 5 { // 5次失败登录
-		td.CreateThreatAlert("BruteForce", "critical", "/login", ip, 
-			td.ipFailCount[ip], "检测到暴力破解攻击", nil)
-	}
-}
-
-// 记录系统错误
-func (td *ThreatDetector) recordSystemError(errorMsg string) {
-	td.mu.Lock()
-	defer td.mu.Unlock()
-	
-	td.systemErrors = append(td.systemErrors, errorMsg)
-	
-	// 保持最新100条错误
-	if len(td.systemErrors) > 100 {
-		td.systemErrors = td.systemErrors[1:]
-	}
-	
-	// 检测系统异常
-	if len(td.systemErrors) > 10 { // 短时间内大量错误
-		td.CreateThreatAlert("SystemError", "medium", "/system", "localhost", 
-			len(td.systemErrors), "检测到系统异常", nil)
-	}
-}
-
-// 记录进程停止
-func (td *ThreatDetector) recordProcessDown(processName string) {
-	td.mu.Lock()
-	defer td.mu.Unlock()
-	
-	// 检查是否已经记录
-	for _, process := range td.processDown {
-		if process == processName {
-			return
+	// Check for path traversal
+	for _, pattern := range suspiciousPatterns[:4] {
+		if strings.Contains(path, pattern) {
+			threatType = "path_traversal"
+			description = fmt.Sprintf("Path traversal attempt detected: %s", pattern)
+			severity = "high"
+			break
 		}
 	}
-	
-	td.processDown = append(td.processDown, processName)
-	
-	td.CreateThreatAlert("ProcessDown", "critical", "/system", "localhost", 
-		1, "关键进程停止: "+processName, nil)
-}
 
-// 检测HTTP错误
-func (td *ThreatDetector) checkHTTPErrors(ip, endpoint string, statusCode int) {
-	// 404错误可能表示扫描行为
-	if statusCode == 404 {
-		key := ip + "_404"
-		if td.requestCount["_404_scan"] == nil {
-			td.requestCount["_404_scan"] = make(map[string]int)
-		}
-		td.requestCount["_404_scan"][key]++
-		
-		if td.requestCount["_404_scan"][key] > 20 { // 20个404错误
-			td.CreateThreatAlert("Scanning", "medium", endpoint, ip, 
-				td.requestCount["_404_scan"][key], "检测到可能的扫描行为", nil)
-		}
-	}
-	
-	// 5xx错误可能表示攻击
-	if statusCode >= 500 {
-		key := ip + "_5xx"
-		if td.requestCount["_5xx_errors"] == nil {
-			td.requestCount["_5xx_errors"] = make(map[string]int)
-		}
-		td.requestCount["_5xx_errors"][key]++
-		
-		if td.requestCount["_5xx_errors"][key] > 10 { // 10个5xx错误
-			td.CreateThreatAlert("ServerError", "high", endpoint, ip, 
-				td.requestCount["_5xx_errors"][key], "检测到服务器错误攻击", nil)
-		}
-	}
-}
-
-// 创建威胁告警
-func (td *ThreatDetector) CreateThreatAlert(alertType, severity, endpoint, sourceIP string, requests int, description string, details []RequestDetail) {
-	td.mu.Lock()
-	defer td.mu.Unlock()
-	
-	alert := ThreatAlert{
-		ID:          td.alertID,
-		Type:        alertType,
-		Severity:    severity,
-		Endpoint:    endpoint,
-		Requests:    requests,
-		TimeWindow:  "5分钟",
-		SourceIP:    sourceIP,
-		Timestamp:   time.Now(),
-		Description: description,
-		Active:      true,
-		RequestDetails: details,
-	}
-	
-	td.alerts = append(td.alerts, alert)
-	td.alertID++
-	
-	// 保持最新100个告警
-	if len(td.alerts) > 100 {
-		td.alerts = td.alerts[1:]
-	}
-	
-	log.Printf("🚨 威胁告警: %s - %s (来源: %s)", alertType, description, sourceIP)
-}
-
-// 分析威胁
-func (td *ThreatDetector) analyzeThreats() {
-	td.mu.Lock()
-	defer td.mu.Unlock()
-	
-	// 分析IP行为模式
-	td.analyzeIPBehavior()
-	
-	// 分析端点访问模式
-	td.analyzeEndpointPatterns()
-	
-	// 清理过期数据
-	td.cleanupExpiredData()
-}
-
-// 分析IP行为模式
-func (td *ThreatDetector) analyzeIPBehavior() {
-	ipRequestCounts := make(map[string]int)
-	
-	// 统计每个IP的总请求数
-	for _, endpointMap := range td.requestCount {
-		for ip, count := range endpointMap {
-			if ip != "_404_scan" && ip != "_5xx_errors" {
-				ipRequestCounts[ip] += count
+	// Check for XSS
+	if threatType == "" {
+		for _, pattern := range suspiciousPatterns[4:9] {
+			if strings.Contains(path, pattern) || strings.Contains(userAgent, pattern) {
+				threatType = "xss"
+				description = fmt.Sprintf("XSS attempt detected: %s", pattern)
+				severity = "medium"
+				break
 			}
 		}
 	}
-	
-	// 检测异常活跃的IP
-	for ip, totalRequests := range ipRequestCounts {
-		if totalRequests > 500 { // 5分钟内超过500次请求
-			td.CreateThreatAlert("DDoS", "critical", "/", ip, 
-				totalRequests, "检测到可能的DDoS攻击", nil)
+
+	// Check for SQL injection
+	if threatType == "" {
+		for _, pattern := range suspiciousPatterns[9:13] {
+			if strings.Contains(path, pattern) {
+				threatType = "sql_injection"
+				description = fmt.Sprintf("SQL injection attempt detected: %s", pattern)
+				severity = "critical"
+				break
+			}
 		}
+	}
+
+	// Check for admin panel access
+	if threatType == "" {
+		for _, pattern := range suspiciousPatterns[13:17] {
+			if strings.Contains(path, pattern) {
+				threatType = "admin_access"
+				description = fmt.Sprintf("Admin panel access attempt: %s", pattern)
+				severity = "medium"
+				break
+			}
+		}
+	}
+
+	// Check for sensitive file access
+	if threatType == "" {
+		for _, pattern := range suspiciousPatterns[17:] {
+			if strings.Contains(path, pattern) {
+				threatType = "sensitive_file"
+				description = fmt.Sprintf("Sensitive file access attempt: %s", pattern)
+				severity = "high"
+				break
+			}
+		}
+	}
+
+	// Check for suspicious user agents
+	if threatType == "" {
+		suspiciousAgents := []string{"sqlmap", "nikto", "nmap", "masscan", "zap", "burp"}
+		for _, agent := range suspiciousAgents {
+			if strings.Contains(userAgent, agent) {
+				threatType = "scanner"
+				description = fmt.Sprintf("Security scanner detected: %s", agent)
+				severity = "high"
+				break
+			}
+		}
+	}
+
+	// Check for brute force (multiple failed attempts)
+	if req.StatusCode == 401 || req.StatusCode == 403 {
+		threatType = "brute_force"
+		description = "Potential brute force attack detected"
+		severity = "medium"
+	}
+
+	if threatType != "" {
+		threat := &Threat{
+			ID:          fmt.Sprintf("threat_%d", time.Now().UnixNano()),
+			Type:        threatType,
+			Severity:    severity,
+			Source:      req.IP,
+			Target:      req.Path,
+			Description: description,
+			Timestamp:   time.Now(),
+			Status:      "active",
+		}
+
+		t.mu.Lock()
+		t.threats = append([]Threat{*threat}, t.threats...)
+		if len(t.threats) > 100 {
+			t.threats = t.threats[:100]
+		}
+
+		// Create corresponding alert
+		alert := AlertInfo{
+			ID:           fmt.Sprintf("alert_%d", time.Now().UnixNano()),
+			Type:         "security",
+			Message:      fmt.Sprintf("Security threat detected from %s: %s", req.IP, description),
+			Severity:     severity,
+			Timestamp:    time.Now(),
+			Acknowledged: false,
+		}
+		t.alerts = append([]AlertInfo{alert}, t.alerts...)
+		if len(t.alerts) > 50 {
+			t.alerts = t.alerts[:50]
+		}
+		t.mu.Unlock()
+
+		return true, threat
+	}
+
+	return false, nil
+}
+
+// GetThreats returns all detected threats
+func (t *ThreatDetector) GetThreats() []Threat {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	
+	// Return a copy to avoid race conditions
+	result := make([]Threat, len(t.threats))
+	copy(result, t.threats)
+	return result
+}
+
+// GetAlerts returns all alerts
+func (t *ThreatDetector) GetAlerts() []AlertInfo {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	
+	// Return a copy to avoid race conditions
+	result := make([]AlertInfo, len(t.alerts))
+	copy(result, t.alerts)
+	return result
+}
+
+// AddThreat manually adds a threat (for testing or external sources)
+func (t *ThreatDetector) AddThreat(threat Threat) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	
+	t.threats = append([]Threat{threat}, t.threats...)
+	if len(t.threats) > 100 {
+		t.threats = t.threats[:100]
 	}
 }
 
-// 分析端点访问模式
-func (td *ThreatDetector) analyzeEndpointPatterns() {
-	for endpoint, ipMap := range td.requestCount {
-		if endpoint == "_404_scan" || endpoint == "_5xx_errors" {
-			continue
-		}
-		
-		totalRequests := 0
-		for _, count := range ipMap {
-			totalRequests += count
-		}
-		
-		// 检测端点异常访问
-		if totalRequests > 1000 { // 5分钟内超过1000次请求
-			td.CreateThreatAlert("EndpointFlood", "high", endpoint, "multiple", 
-				totalRequests, "检测到端点异常访问", nil)
-		}
-	}
-}
-
-// 清理过期数据
-func (td *ThreatDetector) cleanupExpiredData() {
-	now := time.Now()
+// AddAlert manually adds an alert
+func (t *ThreatDetector) AddAlert(alert AlertInfo) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	
-	// 清理过期的失败登录记录
-	for ip, lastFail := range td.ipLastFail {
-		if now.Sub(lastFail) > 10*time.Minute {
-			delete(td.ipFailCount, ip)
-			delete(td.ipLastFail, ip)
-		}
-	}
-	
-	// 清理过期的进程停止记录
-	td.processDown = []string{}
-}
-
-// 清理旧告警
-func (td *ThreatDetector) cleanupOldAlerts() {
-	td.mu.Lock()
-	defer td.mu.Unlock()
-	
-	now := time.Now()
-	activeAlerts := []ThreatAlert{}
-	
-	for _, alert := range td.alerts {
-		// 保留最近1小时的告警
-		if now.Sub(alert.Timestamp) < time.Hour {
-			activeAlerts = append(activeAlerts, alert)
-		}
-	}
-	
-	td.alerts = activeAlerts
-}
-
-// 获取活跃威胁数量
-func (td *ThreatDetector) getActiveThreatCount() int {
-	td.mu.RLock()
-	defer td.mu.RUnlock()
-	
-	count := 0
-	now := time.Now()
-	
-	for _, alert := range td.alerts {
-		if alert.Active && now.Sub(alert.Timestamp) < 10*time.Minute {
-			count++
-		}
-	}
-	
-	return count
-}
-
-// 获取所有威胁
-func (td *ThreatDetector) GetAllThreats() []ThreatAlert {
-	td.mu.RLock()
-	defer td.mu.RUnlock()
-	
-	threats := make([]ThreatAlert, len(td.alerts))
-	copy(threats, td.alerts)
-	return threats
-}
-
-// 获取活跃威胁
-func (td *ThreatDetector) GetActiveThreats() []ThreatAlert {
-	td.mu.RLock()
-	defer td.mu.RUnlock()
-	
-	var activeThreats []ThreatAlert
-	now := time.Now()
-	
-	for _, alert := range td.alerts {
-		if alert.Active && now.Sub(alert.Timestamp) < 10*time.Minute {
-			activeThreats = append(activeThreats, alert)
-		}
-	}
-	
-	return activeThreats
-}
-
-// 处理威胁
-func (td *ThreatDetector) HandleThreat(threatID int) {
-	td.mu.Lock()
-	defer td.mu.Unlock()
-	
-	for i, alert := range td.alerts {
-		if alert.ID == threatID {
-			td.alerts[i].Active = false
-			log.Printf("威胁 %d 已处理", threatID)
-			break
-		}
+	t.alerts = append([]AlertInfo{alert}, t.alerts...)
+	if len(t.alerts) > 50 {
+		t.alerts = t.alerts[:50]
 	}
 }
