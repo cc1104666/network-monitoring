@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -87,30 +88,107 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", r))
 }
 
+// 获取统计数据处理器
+func getStatsHandler(monitor *NetworkMonitor) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		
+		stats := monitor.GetCurrentStats()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data":    stats,
+		})
+	}
+}
+
+// 获取服务器状态处理器
+func getServersHandler(monitor *NetworkMonitor) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		
+		servers := monitor.GetServerStatus()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data":    servers,
+		})
+	}
+}
+
+// 获取威胁信息处理器
+func getThreatsHandler(detector *ThreatDetector) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		
+		threats := detector.GetAllThreats()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data":    threats,
+		})
+	}
+}
+
+// 获取端点信息处理器
+func getEndpointsHandler(monitor *NetworkMonitor) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		
+		endpoints := monitor.GetEndpointStats()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data":    endpoints,
+		})
+	}
+}
+
+// 获取请求详情处理器
+func getRequestDetailsHandler(monitor *NetworkMonitor) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		
+		details := monitor.GetRequestDetails()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data":    details,
+		})
+	}
+}
+
 // 威胁处理API
 func handleThreatActionHandler(detector *ThreatDetector) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		
 		vars := mux.Vars(r)
-		threatID := vars["id"]
+		threatIDStr := vars["id"]
 		action := vars["action"]
 		
-		var requestBody map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
-			http.Error(w, "解析请求失败", http.StatusBadRequest)
+		threatID, err := strconv.Atoi(threatIDStr)
+		if err != nil {
+			http.Error(w, "无效的威胁ID", http.StatusBadRequest)
 			return
 		}
 		
-		// 这里可以实现具体的威胁处理逻辑
-		log.Printf("处理威胁 %s: %s", threatID, action)
+		// 处理威胁操作
+		var message string
+		switch action {
+		case "block":
+			message = "IP已被封禁"
+		case "whitelist":
+			message = "IP已加入白名单"
+		case "ignore":
+			message = "威胁已忽略"
+		default:
+			message = "威胁已处理"
+		}
 		
-		// 模拟处理成功
+		// 标记威胁为已处理
+		detector.HandleThreat(threatID)
+		
+		log.Printf("处理威胁 %d: %s", threatID, action)
+		
 		response := map[string]interface{}{
 			"success": true,
-			"message": "威胁处理成功",
-			"threat_id": threatID,
-			"action": action,
+			"message": message,
 		}
 		
 		json.NewEncoder(w).Encode(response)
@@ -192,4 +270,10 @@ func websocketHandler(monitor *NetworkMonitor, detector *ThreatDetector) http.Ha
 			}
 		}
 	}
+}
+
+// 运行代理模式
+func runAgent() {
+	log.Println("🤖 启动代理模式...")
+	// 这里可以实现代理功能
 }

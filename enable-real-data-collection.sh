@@ -3,6 +3,21 @@
 echo "🔍 启用真实数据收集模式..."
 echo "=================================="
 
+# 设置Go环境变量
+export PATH=$PATH:/usr/local/go/bin
+export GOPROXY=https://goproxy.cn,direct
+export GOSUMDB=sum.golang.google.cn
+export GO111MODULE=on
+
+# 检查Go是否可用
+if ! command -v go &> /dev/null; then
+    echo "❌ Go未找到，请先安装Go"
+    echo "💡 运行: sudo bash install-and-fix-complete.sh"
+    exit 1
+fi
+
+echo "✅ Go版本: $(go version)"
+
 # 检查Go服务是否运行
 if pgrep -f "network-monitoring" > /dev/null; then
     echo "⚠️  停止现有服务..."
@@ -21,7 +36,7 @@ export LOG_LEVEL=info
 
 # 编译并启动服务
 echo "🔨 编译服务..."
-if go build -o network-monitoring .; then
+if go build -o network-monitoring *.go; then
     echo "✅ 编译成功"
 else
     echo "❌ 编译失败"
@@ -34,7 +49,7 @@ echo "🔍 真实数据收集器已启用"
 echo "📝 日志输出: /var/log/network-monitor/"
 
 # 启动服务
-./network-monitoring &
+ENABLE_REAL_DATA=true ./network-monitoring &
 
 # 获取进程ID
 PID=$!
