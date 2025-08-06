@@ -74,7 +74,9 @@ apt-get install -y \
     lsof \
     ca-certificates \
     gnupg \
-    software-properties-common 2>/dev/null || {
+    software-properties-common \
+    npm \
+    wscat 2>/dev/null || {
     print_warning "Some packages failed to install, continuing..."
 }
 
@@ -125,10 +127,17 @@ if [ ! -f "go.mod" ]; then
     /usr/local/go/bin/go mod init network-monitor
 fi
 
+# Clean go.sum to avoid version conflicts
+rm -f go.sum
+
+# Add necessary dependencies
+go mod edit -require github.com/gorilla/mux@v1.8.0
+go mod edit -require github.com/gorilla/websocket@v1.5.0
+go mod edit -require github.com/rs/cors@v1.10.1
+
 # Download Go dependencies
 print_status "Downloading Go dependencies..."
-/usr/local/go/bin/go mod tidy
-/usr/local/go/bin/go mod download
+go mod tidy
 
 print_status "Go environment configured successfully"
 
@@ -218,12 +227,15 @@ print_status "Firewall configured (port 8080 opened)"
 
 print_step "10. Starting services..."
 
-# Reload systemd and start service
-systemctl daemon-reload
-systemctl enable network-monitor
-systemctl stop network-monitor 2>/dev/null || true
+# Stop existing service
+print_status "Stopping existing service..."
+pkill -f network-monitor || true
 sleep 2
-systemctl start network-monitor
+
+# Start the Go application
+print_status "Starting Go application..."
+nohup ./network-monitor > monitor.log 2>&1 &
+MONITOR_PID=$!
 
 # Wait for service to start
 sleep 5
@@ -231,90 +243,60 @@ sleep 5
 print_step "11. Verifying installation..."
 
 # Check service status
-if systemctl is-active --quiet network-monitor; then
+if kill -0 $MONITOR_PID 2>/dev/null; then
     print_status "✅ Network Monitor service is running"
+    
+    # Test API endpoints
+    print_status "Testing API endpoints..."
+    
+    # Wait a bit more for the server to fully initialize
+    sleep 3
+    
+    # Test system info endpoint
+    if curl -s -f --connect-timeout 10 http://localhost:8080/api/system/info > /dev/null; then
+        print_status "✅ API endpoint /api/system/info is responding"
+    else
+        print_warning "⚠️ API endpoint /api/system/info is not responding yet"
+    fi
+    
+    # Test WebSocket endpoint (basic check)
+    if command -v wscat &> /dev/null; then
+        timeout 3 wscat -c ws://localhost:8080/ws > /dev/null 2>&1 && \
+        print_status "✅ WebSocket endpoint is accessible" || \
+        print_warning "⚠️ WebSocket endpoint check completed (expected behavior)"
+    fi
+    
+    echo ""
+    echo "=== ACCESS INFORMATION ==="
+    echo "🌐 Web Interface: http://localhost:8080"
+    echo "🌐 Web Interface (external): http://$(hostname -I | awk '{print $1}'):8080"
+    echo "📡 WebSocket URL: ws://localhost:8080/ws"
+    echo "📊 API Base URL: http://localhost:8080/api"
+    echo ""
+    echo "=== MANAGEMENT COMMANDS ==="
+    echo "📊 Check status: ps aux | grep network-monitor"
+    echo "📋 View logs: tail -f monitor.log"
+    echo "🔄 Restart service: ./enable-real-data-collection.sh"
+    echo "⏹️ Stop service: pkill -f network-monitor"
+    echo "▶️ Start service: ./enable-real-data-collection.sh"
+    echo ""
+    echo "=== FIREWALL STATUS ==="
+    ufw status
+    echo ""
+    
+    print_status "🎉 Network Monitoring System setup completed successfully!"
 else
     print_error "❌ Network Monitor service failed to start"
-    print_error "Check logs with: sudo journalctl -u network-monitor -f"
+    print_error "Check logs with: cat monitor.log"
+    
+    if [ -f "monitor.log" ]; then
+        echo ""
+        echo "=== ERROR LOGS ==="
+        tail -20 monitor.log
+    fi
+    
     exit 1
 fi
-
-# Test API endpoints
-print_status "Testing API endpoints..."
-
-# Wait a bit more for the server to fully initialize
-sleep 3
-
-# Test system info endpoint
-if curl -s -f --connect-timeout 10 http://localhost:8080/api/system/info > /dev/null; then
-    print_status "✅ API endpoint /api/system/info is responding"
-else
-    print_warning "⚠️ API endpoint /api/system/info is not responding yet"
-fi
-
-# Test WebSocket endpoint (basic check)
-if curl -s -f -H "Connection: Upgrade" -H "Upgrade: websocket" http://localhost:8080/ws > /dev/null 2>&1; then
-    print_status "✅ WebSocket endpoint is accessible"
-else
-    print_status "ℹ️ WebSocket endpoint check completed (expected behavior)"
-fi
-
-print_step "12. Final system check..."
-
-# Display service status
-echo ""
-echo "=== SERVICE STATUS ==="
-systemctl status network-monitor --no-pager -l
-
-echo ""
-echo "=== RECENT LOGS ==="
-journalctl -u network-monitor --no-pager -n 10
-
-echo ""
-echo "=== NETWORK STATUS ==="
-ss -tlnp | grep :8080 || echo "Port 8080 not found in listening ports"
-
-echo ""
-print_status "🎉 Network Monitoring System setup completed successfully!"
-echo ""
-echo "=== ACCESS INFORMATION ==="
-echo "🌐 Web Interface: http://localhost:8080"
-echo "🌐 Web Interface (external): http://$(hostname -I | awk '{print $1}'):8080"
-echo "📡 WebSocket URL: ws://localhost:8080/ws"
-echo "📊 API Base URL: http://localhost:8080/api"
-echo ""
-echo "=== MANAGEMENT COMMANDS ==="
-echo "📊 Check status: sudo systemctl status network-monitor"
-echo "📋 View logs: sudo journalctl -u network-monitor -f"
-echo "🔄 Restart service: sudo systemctl restart network-monitor"
-echo "⏹️ Stop service: sudo systemctl stop network-monitor"
-echo "▶️ Start service: sudo systemctl start network-monitor"
-echo ""
-echo "=== FIREWALL STATUS ==="
-ufw status
-echo ""
-
-# Create a simple status check script
-cat > check-status.sh << 'EOF'
-#!/bin/bash
-echo "=== Network Monitor Status Check ==="
-echo "Service Status:"
-systemctl is-active network-monitor && echo "✅ Service is running" || echo "❌ Service is not running"
-echo ""
-echo "API Test:"
-curl -s http://localhost:8080/api/system/info > /dev/null && echo "✅ API is responding" || echo "❌ API is not responding"
-echo ""
-echo "Port Status:"
-ss -tlnp | grep :8080 && echo "✅ Port 8080 is listening" || echo "❌ Port 8080 is not listening"
-echo ""
-echo "Recent Logs:"
-journalctl -u network-monitor --no-pager -n 5
-EOF
-
-chmod +x check-status.sh
-
-print_status "✅ Status check script created: ./check-status.sh"
-print_status "🚀 Setup completed! The system is ready to use."
 
 # Restore MySQL repository if it was backed up
 if [ -f /etc/apt/sources.list.d/mysql.list.bak ]; then
