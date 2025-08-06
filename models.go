@@ -6,18 +6,18 @@ import (
 
 // SystemMetrics represents system performance metrics
 type SystemMetrics struct {
-	ServerID   string       `json:"server_id"`
-	ServerName string       `json:"server_name"`
-	ServerIP   string       `json:"server_ip"`
-	Timestamp  time.Time    `json:"timestamp"`
-	CPU        float64      `json:"cpu"`
-	Memory     float64      `json:"memory"`
-	Disk       float64      `json:"disk"`
-	Network    NetworkStats `json:"network"`
-	Status     string       `json:"status"`
+	ServerID    string    `json:"server_id"`
+	ServerName  string    `json:"server_name"`
+	ServerIP    string    `json:"server_ip"`
+	Timestamp   time.Time `json:"timestamp"`
+	CPU         float64   `json:"cpu"`
+	Memory      float64   `json:"memory"`
+	Disk        float64   `json:"disk"`
+	Network     NetworkStats `json:"network"`
+	Status      string    `json:"status"`
 }
 
-// NetworkStats holds network IO counters
+// NetworkStats represents network statistics
 type NetworkStats struct {
 	BytesSent   uint64 `json:"bytes_sent"`
 	BytesRecv   uint64 `json:"bytes_recv"`
@@ -25,29 +25,28 @@ type NetworkStats struct {
 	PacketsRecv uint64 `json:"packets_recv"`
 }
 
-// NetworkConnection represents an active network connection
+// NetworkConnection represents a network connection
 type NetworkConnection struct {
 	Protocol    string    `json:"protocol"`
 	LocalAddr   string    `json:"local_addr"`
 	RemoteAddr  string    `json:"remote_addr"`
 	State       string    `json:"state"`
-	Port        uint32    `json:"port"`
+	Port        int       `json:"port"`
 	ProcessName string    `json:"process_name"`
-	PID         int32     `json:"pid"`
 	Timestamp   time.Time `json:"timestamp"`
 }
 
-// ProcessInfo holds information about a running process
+// ProcessInfo represents process information
 type ProcessInfo struct {
 	PID       int32     `json:"pid"`
 	Name      string    `json:"name"`
 	CPUUsage  float64   `json:"cpu_usage"`
-	Memory    float32   `json:"memory"`
+	Memory    float64   `json:"memory"`
 	Status    string    `json:"status"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// Threat represents a detected security threat
+// Threat represents a security threat
 type Threat struct {
 	ID          string    `json:"id"`
 	Type        string    `json:"type"`
@@ -59,8 +58,8 @@ type Threat struct {
 	Status      string    `json:"status"`
 }
 
-// Alert represents a notification-worthy event
-type Alert struct {
+// AlertInfo represents an alert
+type AlertInfo struct {
 	ID           string    `json:"id"`
 	Type         string    `json:"type"`
 	Message      string    `json:"message"`
@@ -69,16 +68,16 @@ type Alert struct {
 	Acknowledged bool      `json:"acknowledged"`
 }
 
-// SystemInfo holds static information about the host system
+// SystemInfo represents system information
 type SystemInfo struct {
-	Hostname        string `json:"hostname"`
-	OS              string `json:"os"`
-	Platform        string `json:"platform"`
-	Uptime          uint64 `json:"uptime"`
-	CPUModel        string `json:"cpu_model"`
-	CPUCores        int    `json:"cpu_cores"`
-	TotalMemory     uint64 `json:"total_memory"`
-	RealDataEnabled bool   `json:"real_data_enabled"`
+	Hostname         string `json:"hostname"`
+	OS               string `json:"os"`
+	Platform         string `json:"platform"`
+	Uptime           uint64 `json:"uptime"`
+	CPUModel         string `json:"cpu_model"`
+	CPUCores         int    `json:"cpu_cores"`
+	TotalMemory      uint64 `json:"total_memory"`
+	RealDataEnabled  bool   `json:"real_data_enabled"`
 }
 
 // HTTPRequest represents an HTTP request for threat analysis
@@ -88,7 +87,7 @@ type HTTPRequest struct {
 	IP         string    `json:"ip"`
 	UserAgent  string    `json:"user_agent"`
 	StatusCode int       `json:"status_code"`
-	Size       int64     `json:"size"`
+	Size       int       `json:"size"`
 	Timestamp  time.Time `json:"timestamp"`
 }
 

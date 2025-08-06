@@ -11,7 +11,7 @@ import (
 // ThreatDetector handles threat detection and analysis
 type ThreatDetector struct {
 	threats []Threat
-	alerts  []Alert
+	alerts  []AlertInfo
 	mu      sync.RWMutex
 }
 
@@ -19,41 +19,140 @@ type ThreatDetector struct {
 func NewThreatDetector() *ThreatDetector {
 	return &ThreatDetector{
 		threats: make([]Threat, 0),
-		alerts:  make([]Alert, 0),
+		alerts:  make([]AlertInfo, 0),
 	}
 }
 
-// AnalyzeHTTPRequest analyzes an HTTP request for threats
-func (td *ThreatDetector) AnalyzeHTTPRequest(req HTTPRequest) (bool, *Threat) {
-	td.mu.Lock()
-	defer td.mu.Unlock()
+// AnalyzeHTTPRequest analyzes HTTP requests for threats
+func (t *ThreatDetector) AnalyzeHTTPRequest(req HTTPRequest) (bool, *Threat) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-	// Check for common attack patterns
-	if td.isSQLInjection(req.Path) {
-		threat := td.createThreat("sql_injection", "high", req.IP, req.Path, "SQL injection attempt detected")
-		td.threats = append(td.threats, threat)
-		td.createAlert("security", fmt.Sprintf("SQL injection from %s", req.IP), "high")
-		return true, &threat
+	// Check for suspicious patterns
+	suspiciousPatterns := []string{
+		"../", "..\\", "/etc/passwd", "/etc/shadow", "cmd.exe", "powershell",
+		"<script", "javascript:", "onload=", "onerror=", "eval(", "alert(",
+		"union select", "drop table", "insert into", "delete from",
+		"wp-admin", "admin.php", "login.php", "config.php",
+		".env", "backup", "dump", "sql",
 	}
 
-	if td.isXSSAttempt(req.Path) {
-		threat := td.createThreat("xss", "medium", req.IP, req.Path, "XSS attempt detected")
-		td.threats = append(td.threats, threat)
-		td.createAlert("security", fmt.Sprintf("XSS attempt from %s", req.IP), "medium")
-		return true, &threat
+	threatType := ""
+	severity := "low"
+	description := ""
+
+	path := strings.ToLower(req.Path)
+	userAgent := strings.ToLower(req.UserAgent)
+
+	// Path traversal detection
+	for _, pattern := range suspiciousPatterns[:4] {
+		if strings.Contains(path, pattern) {
+			threatType = "path_traversal"
+			severity = "high"
+			description = fmt.Sprintf("Path traversal attempt detected: %s", pattern)
+			break
+		}
 	}
 
-	if td.isPathTraversal(req.Path) {
-		threat := td.createThreat("path_traversal", "high", req.IP, req.Path, "Path traversal attempt detected")
-		td.threats = append(td.threats, threat)
-		td.createAlert("security", fmt.Sprintf("Path traversal from %s", req.IP), "high")
-		return true, &threat
+	// XSS detection
+	if threatType == "" {
+		for _, pattern := range suspiciousPatterns[4:10] {
+			if strings.Contains(path, pattern) || strings.Contains(userAgent, pattern) {
+				threatType = "xss"
+				severity = "medium"
+				description = fmt.Sprintf("XSS attempt detected: %s", pattern)
+				break
+			}
+		}
 	}
 
-	if td.isSuspiciousUserAgent(req.UserAgent) {
-		threat := td.createThreat("scanning_tool", "low", req.IP, req.Path, "Suspicious user agent detected")
-		td.threats = append(td.threats, threat)
-		td.createAlert("security", fmt.Sprintf("Scanning tool detected from %s", req.IP), "low")
+	// SQL injection detection
+	if threatType == "" {
+		for _, pattern := range suspiciousPatterns[10:14] {
+			if strings.Contains(path, pattern) {
+				threatType = "sql_injection"
+				severity = "high"
+				description = fmt.Sprintf("SQL injection attempt detected: %s", pattern)
+				break
+			}
+		}
+	}
+
+	// Admin panel scanning
+	if threatType == "" {
+		for _, pattern := range suspiciousPatterns[14:18] {
+			if strings.Contains(path, pattern) {
+				threatType = "admin_scan"
+				severity = "medium"
+				description = fmt.Sprintf("Admin panel scanning detected: %s", pattern)
+				break
+			}
+		}
+	}
+
+	// Sensitive file access
+	if threatType == "" {
+		for _, pattern := range suspiciousPatterns[18:] {
+			if strings.Contains(path, pattern) {
+				threatType = "sensitive_file_access"
+				severity = "medium"
+				description = fmt.Sprintf("Sensitive file access attempt: %s", pattern)
+				break
+			}
+		}
+	}
+
+	// Suspicious user agents
+	suspiciousAgents := []string{"sqlmap", "nikto", "nmap", "masscan", "zap", "burp"}
+	for _, agent := range suspiciousAgents {
+		if strings.Contains(userAgent, agent) {
+			threatType = "scanner"
+			severity = "high"
+			description = fmt.Sprintf("Security scanner detected: %s", agent)
+			break
+		}
+	}
+
+	// Rate limiting - simple implementation
+	if req.StatusCode == 404 && len(req.Path) > 50 {
+		threatType = "brute_force"
+		severity = "medium"
+		description = "Potential brute force attack detected"
+	}
+
+	if threatType != "" {
+		threat := Threat{
+			ID:          fmt.Sprintf("threat-%d", time.Now().UnixNano()),
+			Type:        threatType,
+			Severity:    severity,
+			Source:      req.IP,
+			Target:      req.Path,
+			Description: description,
+			Timestamp:   req.Timestamp,
+			Status:      "active",
+		}
+
+		t.threats = append(t.threats, threat)
+
+		// Create corresponding alert
+		alert := AlertInfo{
+			ID:           fmt.Sprintf("alert-%d", time.Now().UnixNano()),
+			Type:         "security",
+			Message:      fmt.Sprintf("Security threat from %s: %s", req.IP, description),
+			Severity:     severity,
+			Timestamp:    time.Now(),
+			Acknowledged: false,
+		}
+		t.alerts = append(t.alerts, alert)
+
+		// Keep only last 100 threats and alerts
+		if len(t.threats) > 100 {
+			t.threats = t.threats[len(t.threats)-100:]
+		}
+		if len(t.alerts) > 100 {
+			t.alerts = t.alerts[len(t.alerts)-100:]
+		}
+
 		return true, &threat
 	}
 
@@ -61,186 +160,143 @@ func (td *ThreatDetector) AnalyzeHTTPRequest(req HTTPRequest) (bool, *Threat) {
 }
 
 // GetThreats returns all detected threats
-func (td *ThreatDetector) GetThreats() []Threat {
-	td.mu.RLock()
-	defer td.mu.RUnlock()
-	
+func (t *ThreatDetector) GetThreats() []Threat {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
 	// Return a copy to avoid race conditions
-	threats := make([]Threat, len(td.threats))
-	copy(threats, td.threats)
-	return threats
+	result := make([]Threat, len(t.threats))
+	copy(result, t.threats)
+	return result
 }
 
 // GetAlerts returns all alerts
-func (td *ThreatDetector) GetAlerts() []Alert {
-	td.mu.RLock()
-	defer td.mu.RUnlock()
-	
+func (t *ThreatDetector) GetAlerts() []AlertInfo {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
 	// Return a copy to avoid race conditions
-	alerts := make([]Alert, len(td.alerts))
-	copy(alerts, td.alerts)
-	return alerts
+	result := make([]AlertInfo, len(t.alerts))
+	copy(result, t.alerts)
+	return result
+}
+
+// ClearOldThreats removes threats older than the specified duration
+func (t *ThreatDetector) ClearOldThreats(maxAge time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	cutoff := time.Now().Add(-maxAge)
+	
+	// Filter threats
+	var newThreats []Threat
+	for _, threat := range t.threats {
+		if threat.Timestamp.After(cutoff) {
+			newThreats = append(newThreats, threat)
+		}
+	}
+	t.threats = newThreats
+
+	// Filter alerts
+	var newAlerts []AlertInfo
+	for _, alert := range t.alerts {
+		if alert.Timestamp.After(cutoff) {
+			newAlerts = append(newAlerts, alert)
+		}
+	}
+	t.alerts = newAlerts
 }
 
 // GenerateMockThreats generates some mock threats for demonstration
-func (td *ThreatDetector) GenerateMockThreats() {
-	td.mu.Lock()
-	defer td.mu.Unlock()
+func (t *ThreatDetector) GenerateMockThreats() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	mockThreats := []Threat{
 		{
-			ID:          fmt.Sprintf("threat-%d", time.Now().Unix()),
+			ID:          "threat-demo-1",
 			Type:        "sql_injection",
 			Severity:    "high",
 			Source:      "192.168.1.100",
-			Target:      "/api/users",
-			Description: "SQL injection attempt detected in user query",
+			Target:      "/login.php",
+			Description: "SQL injection attempt detected in login form",
 			Timestamp:   time.Now().Add(-5 * time.Minute),
 			Status:      "active",
 		},
 		{
-			ID:          fmt.Sprintf("threat-%d", time.Now().Unix()+1),
-			Type:        "brute_force",
+			ID:          "threat-demo-2",
+			Type:        "xss",
 			Severity:    "medium",
 			Source:      "10.0.0.50",
-			Target:      "/login",
-			Description: "Multiple failed login attempts detected",
+			Target:      "/search",
+			Description: "Cross-site scripting attempt in search parameter",
 			Timestamp:   time.Now().Add(-10 * time.Minute),
 			Status:      "active",
 		},
 		{
-			ID:          fmt.Sprintf("threat-%d", time.Now().Unix()+2),
-			Type:        "xss",
-			Severity:    "medium",
+			ID:          "threat-demo-3",
+			Type:        "brute_force",
+			Severity:    "high",
 			Source:      "203.0.113.45",
-			Target:      "/search",
-			Description: "Cross-site scripting attempt in search parameter",
+			Target:      "/admin",
+			Description: "Multiple failed login attempts detected",
 			Timestamp:   time.Now().Add(-15 * time.Minute),
-			Status:      "mitigated",
+			Status:      "blocked",
 		},
 	}
 
-	td.threats = append(td.threats, mockThreats...)
+	t.threats = append(t.threats, mockThreats...)
 
-	// Generate mock alerts
-	mockAlerts := []Alert{
-		{
-			ID:           fmt.Sprintf("alert-%d", time.Now().Unix()),
+	// Generate corresponding alerts
+	for _, threat := range mockThreats {
+		alert := AlertInfo{
+			ID:           fmt.Sprintf("alert-%s", threat.ID),
 			Type:         "security",
-			Message:      "High number of failed login attempts detected",
-			Severity:     "high",
-			Timestamp:    time.Now().Add(-2 * time.Minute),
+			Message:      fmt.Sprintf("Security threat from %s: %s", threat.Source, threat.Description),
+			Severity:     threat.Severity,
+			Timestamp:    threat.Timestamp,
 			Acknowledged: false,
-		},
-		{
-			ID:           fmt.Sprintf("alert-%d", time.Now().Unix()+1),
-			Type:         "performance",
-			Message:      "CPU usage above 80% for extended period",
-			Severity:     "warning",
-			Timestamp:    time.Now().Add(-8 * time.Minute),
-			Acknowledged: true,
-		},
-	}
-
-	td.alerts = append(td.alerts, mockAlerts...)
-}
-
-// ClearOldThreats removes threats older than the specified duration
-func (td *ThreatDetector) ClearOldThreats(maxAge time.Duration) {
-	td.mu.Lock()
-	defer td.mu.Unlock()
-
-	cutoff := time.Now().Add(-maxAge)
-	var filteredThreats []Threat
-
-	for _, threat := range td.threats {
-		if threat.Timestamp.After(cutoff) {
-			filteredThreats = append(filteredThreats, threat)
 		}
-	}
-
-	td.threats = filteredThreats
-}
-
-// Helper methods for threat detection
-func (td *ThreatDetector) isSQLInjection(path string) bool {
-	sqlPatterns := []string{
-		"'", "\"", ";", "--", "/*", "*/", "xp_", "sp_", "union", "select", "insert", "delete", "update", "drop", "create", "alter", "exec", "execute",
-	}
-	
-	lowerPath := strings.ToLower(path)
-	for _, pattern := range sqlPatterns {
-		if strings.Contains(lowerPath, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-func (td *ThreatDetector) isXSSAttempt(path string) bool {
-	xssPatterns := []string{
-		"<script", "</script>", "javascript:", "onload=", "onerror=", "onclick=", "onmouseover=", "alert(", "document.cookie", "window.location",
-	}
-	
-	lowerPath := strings.ToLower(path)
-	for _, pattern := range xssPatterns {
-		if strings.Contains(lowerPath, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-func (td *ThreatDetector) isPathTraversal(path string) bool {
-	traversalPatterns := []string{
-		"../", "..\\", "....//", "....\\\\", "%2e%2e%2f", "%2e%2e%5c", "..%2f", "..%5c",
-	}
-	
-	lowerPath := strings.ToLower(path)
-	for _, pattern := range traversalPatterns {
-		if strings.Contains(lowerPath, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-func (td *ThreatDetector) isSuspiciousUserAgent(userAgent string) bool {
-	suspiciousAgents := []string{
-		"sqlmap", "nmap", "nikto", "dirb", "gobuster", "wfuzz", "burp", "zap", "nessus", "openvas",
-	}
-	
-	lowerAgent := strings.ToLower(userAgent)
-	for _, agent := range suspiciousAgents {
-		if strings.Contains(lowerAgent, agent) {
-			return true
-		}
-	}
-	return false
-}
-
-func (td *ThreatDetector) createThreat(threatType, severity, source, target, description string) Threat {
-	return Threat{
-		ID:          fmt.Sprintf("threat-%d-%d", time.Now().Unix(), rand.Intn(1000)),
-		Type:        threatType,
-		Severity:    severity,
-		Source:      source,
-		Target:      target,
-		Description: description,
-		Timestamp:   time.Now(),
-		Status:      "active",
+		t.alerts = append(t.alerts, alert)
 	}
 }
 
-func (td *ThreatDetector) createAlert(alertType, message, severity string) {
-	alert := Alert{
-		ID:           fmt.Sprintf("alert-%d-%d", time.Now().Unix(), rand.Intn(1000)),
-		Type:         alertType,
-		Message:      message,
-		Severity:     severity,
+// AddThreat adds a new threat
+func (t *ThreatDetector) AddThreat(threat Threat) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.threats = append(t.threats, threat)
+
+	// Create corresponding alert
+	alert := AlertInfo{
+		ID:           fmt.Sprintf("alert-%d", time.Now().UnixNano()),
+		Type:         "security",
+		Message:      fmt.Sprintf("New threat detected: %s", threat.Description),
+		Severity:     threat.Severity,
 		Timestamp:    time.Now(),
 		Acknowledged: false,
 	}
-	
-	td.alerts = append(td.alerts, alert)
+	t.alerts = append(t.alerts, alert)
+}
+
+// GenerateRandomThreat generates a random threat for testing
+func (t *ThreatDetector) GenerateRandomThreat() {
+	threatTypes := []string{"sql_injection", "xss", "brute_force", "ddos", "malware"}
+	severities := []string{"low", "medium", "high", "critical"}
+	sources := []string{"192.168.1.100", "10.0.0.50", "203.0.113.45", "198.51.100.25"}
+	targets := []string{"/login", "/admin", "/api/users", "/upload", "/search"}
+
+	threat := Threat{
+		ID:          fmt.Sprintf("threat-random-%d", time.Now().UnixNano()),
+		Type:        threatTypes[rand.Intn(len(threatTypes))],
+		Severity:    severities[rand.Intn(len(severities))],
+		Source:      sources[rand.Intn(len(sources))],
+		Target:      targets[rand.Intn(len(targets))],
+		Description: "Randomly generated threat for testing",
+		Timestamp:   time.Now(),
+		Status:      "active",
+	}
+
+	t.AddThreat(threat)
 }
