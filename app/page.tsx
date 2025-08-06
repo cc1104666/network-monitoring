@@ -1,19 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import {
-  AlertTriangle,
-  Activity,
-  Shield,
-  Server,
-  Eye,
-  Bell,
-  TrendingUp,
-  Zap,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-} from "lucide-react"
+import { AlertTriangle, Activity, Shield, Server, Eye, Bell, TrendingUp, Zap, ChevronDown, ChevronRight, Copy } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -82,6 +70,41 @@ const generateThreatAlerts = () => {
       timestamp: new Date(Date.now() - 600000),
     },
   ]
+}
+
+const handleThreatAction = (alertId: number, action: string) => {
+  console.log(`处理威胁 ${alertId}: ${action}`)
+  
+  // 模拟API调用
+  const processAction = async () => {
+    try {
+      // 这里可以调用实际的API
+      const response = await fetch(`/api/threats/${alertId}/${action}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action, alertId })
+      })
+      
+      if (response.ok) {
+        // 更新威胁状态
+        setThreatAlerts(prev => 
+          prev.map(alert => 
+            alert.id === alertId 
+              ? { ...alert, active: false }
+              : alert
+          )
+        )
+        alert(`威胁 ${alertId} 已${action === 'block' ? '封禁' : action === 'whitelist' ? '加入白名单' : '处理'}`)
+      }
+    } catch (error) {
+      console.error('处理威胁失败:', error)
+      alert('处理失败，请重试')
+    }
+  }
+  
+  processAction()
 }
 
 const generateDetailedRequests = () => {
@@ -552,16 +575,25 @@ export default function NetworkMonitoringSystem() {
                           <div>检测时间: {alert.timestamp.toLocaleString()}</div>
                         </div>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedThreat(alert)
-                          setShowRequestModal(true)
-                        }}
-                      >
-                        查看详情
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedThreat(alert)
+                            setShowRequestModal(true)
+                          }}
+                        >
+                          查看详情
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleThreatAction(alert.id, 'block')}
+                        >
+                          处理
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -947,14 +979,26 @@ export default function NetworkMonitoringSystem() {
 
                 {/* 操作按钮 */}
                 <div className="flex gap-4 mt-6">
-                  <Button variant="destructive" className="flex-1">
+                  <Button 
+                    variant="destructive" 
+                    className="flex-1"
+                    onClick={() => handleThreatAction(selectedThreat.id, 'block')}
+                  >
                     <AlertTriangle className="w-4 h-4 mr-2" />
                     确认威胁并封禁IP
                   </Button>
-                  <Button variant="outline" className="flex-1 bg-transparent">
+                  <Button 
+                    variant="outline" 
+                    className="flex-1 bg-transparent"
+                    onClick={() => handleThreatAction(selectedThreat.id, 'ignore')}
+                  >
                     标记为误报
                   </Button>
-                  <Button variant="secondary" className="flex-1">
+                  <Button 
+                    variant="secondary" 
+                    className="flex-1"
+                    onClick={() => handleThreatAction(selectedThreat.id, 'whitelist')}
+                  >
                     添加白名单
                   </Button>
                 </div>
