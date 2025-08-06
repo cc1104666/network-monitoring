@@ -20,21 +20,6 @@ func NewThreatDetector() *ThreatDetector {
 	}
 }
 
-// 扩展威胁检测器结构
-type ThreatDetector struct {
-	mu           sync.RWMutex
-	alerts       []ThreatAlert
-	requestCount map[string]map[string]int // endpoint -> IP -> count
-	timeWindows  map[string]time.Time      // endpoint -> last reset time
-	alertID      int
-	
-	// 新增字段用于真实威胁检测
-	ipFailCount  map[string]int       // IP -> 失败次数
-	ipLastFail   map[string]time.Time // IP -> 最后失败时间
-	systemErrors []string             // 系统错误日志
-	processDown  []string             // 停止的进程
-}
-
 func (td *ThreatDetector) Start() {
 	go td.monitorThreats()
 	log.Println("威胁检测器已启动")
@@ -71,8 +56,8 @@ func (td *ThreatDetector) processRequest(ip, endpoint string, statusCode int) {
 	
 	// 检测异常请求频率
 	if td.requestCount[endpoint][ip] > 100 { // 5分钟内超过100次请求
-		td.createThreatAlert("RateLimit", "high", endpoint, ip, 
-			td.requestCount[endpoint][ip], "检测到异常高频请求")
+		td.CreateThreatAlert("RateLimit", "high", endpoint, ip, 
+			td.requestCount[endpoint][ip], "检测到异常高频请求", nil)
 	}
 	
 	// 检测HTTP错误
@@ -91,8 +76,8 @@ func (td *ThreatDetector) recordFailedLogin(ip string) {
 	
 	// 检测暴力破解攻击
 	if td.ipFailCount[ip] > 5 { // 5次失败登录
-		td.createThreatAlert("BruteForce", "critical", "/login", ip, 
-			td.ipFailCount[ip], "检测到暴力破解攻击")
+		td.CreateThreatAlert("BruteForce", "critical", "/login", ip, 
+			td.ipFailCount[ip], "检测到暴力破解攻击", nil)
 	}
 }
 
@@ -110,8 +95,8 @@ func (td *ThreatDetector) recordSystemError(errorMsg string) {
 	
 	// 检测系统异常
 	if len(td.systemErrors) > 10 { // 短时间内大量错误
-		td.createThreatAlert("SystemError", "medium", "/system", "localhost", 
-			len(td.systemErrors), "检测到系统异常")
+		td.CreateThreatAlert("SystemError", "medium", "/system", "localhost", 
+			len(td.systemErrors), "检测到系统异常", nil)
 	}
 }
 
@@ -129,8 +114,8 @@ func (td *ThreatDetector) recordProcessDown(processName string) {
 	
 	td.processDown = append(td.processDown, processName)
 	
-	td.createThreatAlert("ProcessDown", "critical", "/system", "localhost", 
-		1, "关键进程停止: "+processName)
+	td.CreateThreatAlert("ProcessDown", "critical", "/system", "localhost", 
+		1, "关键进程停止: "+processName, nil)
 }
 
 // 检测HTTP错误
@@ -144,8 +129,8 @@ func (td *ThreatDetector) checkHTTPErrors(ip, endpoint string, statusCode int) {
 		td.requestCount["_404_scan"][key]++
 		
 		if td.requestCount["_404_scan"][key] > 20 { // 20个404错误
-			td.createThreatAlert("Scanning", "medium", endpoint, ip, 
-				td.requestCount["_404_scan"][key], "检测到可能的扫描行为")
+			td.CreateThreatAlert("Scanning", "medium", endpoint, ip, 
+				td.requestCount["_404_scan"][key], "检测到可能的扫描行为", nil)
 		}
 	}
 	
@@ -158,14 +143,17 @@ func (td *ThreatDetector) checkHTTPErrors(ip, endpoint string, statusCode int) {
 		td.requestCount["_5xx_errors"][key]++
 		
 		if td.requestCount["_5xx_errors"][key] > 10 { // 10个5xx错误
-			td.createThreatAlert("ServerError", "high", endpoint, ip, 
-				td.requestCount["_5xx_errors"][key], "检测到服务器错误攻击")
+			td.CreateThreatAlert("ServerError", "high", endpoint, ip, 
+				td.requestCount["_5xx_errors"][key], "检测到服务器错误攻击", nil)
 		}
 	}
 }
 
 // 创建威胁告警
-func (td *ThreatDetector) createThreatAlert(alertType, severity, endpoint, sourceIP string, requests int, description string) {
+func (td *ThreatDetector) CreateThreatAlert(alertType, severity, endpoint, sourceIP string, requests int, description string, details []RequestDetail) {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	
 	alert := ThreatAlert{
 		ID:          td.alertID,
 		Type:        alertType,
@@ -177,6 +165,7 @@ func (td *ThreatDetector) createThreatAlert(alertType, severity, endpoint, sourc
 		Timestamp:   time.Now(),
 		Description: description,
 		Active:      true,
+		RequestDetails: details,
 	}
 	
 	td.alerts = append(td.alerts, alert)
@@ -221,8 +210,8 @@ func (td *ThreatDetector) analyzeIPBehavior() {
 	// 检测异常活跃的IP
 	for ip, totalRequests := range ipRequestCounts {
 		if totalRequests > 500 { // 5分钟内超过500次请求
-			td.createThreatAlert("DDoS", "critical", "/", ip, 
-				totalRequests, "检测到可能的DDoS攻击")
+			td.CreateThreatAlert("DDoS", "critical", "/", ip, 
+				totalRequests, "检测到可能的DDoS攻击", nil)
 		}
 	}
 }
@@ -241,8 +230,8 @@ func (td *ThreatDetector) analyzeEndpointPatterns() {
 		
 		// 检测端点异常访问
 		if totalRequests > 1000 { // 5分钟内超过1000次请求
-			td.createThreatAlert("EndpointFlood", "high", endpoint, "multiple", 
-				totalRequests, "检测到端点异常访问")
+			td.CreateThreatAlert("EndpointFlood", "high", endpoint, "multiple", 
+				totalRequests, "检测到端点异常访问", nil)
 		}
 	}
 }
@@ -323,4 +312,18 @@ func (td *ThreatDetector) GetActiveThreats() []ThreatAlert {
 	}
 	
 	return activeThreats
+}
+
+// 处理威胁
+func (td *ThreatDetector) HandleThreat(threatID int) {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	
+	for i, alert := range td.alerts {
+		if alert.ID == threatID {
+			td.alerts[i].Active = false
+			log.Printf("威胁 %d 已处理", threatID)
+			break
+		}
+	}
 }

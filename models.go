@@ -7,6 +7,71 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// 系统指标
+type SystemMetrics struct {
+	CPUUsage    float64   `json:"CPUUsage"`
+	MemoryUsage float64   `json:"MemoryUsage"`
+	DiskUsage   float64   `json:"DiskUsage"`
+	NetworkIn   uint64    `json:"NetworkIn"`
+	NetworkOut  uint64    `json:"NetworkOut"`
+	Timestamp   time.Time `json:"Timestamp"`
+}
+
+// 网络连接
+type NetworkConnection struct {
+	Protocol    string    `json:"Protocol"`
+	LocalAddr   string    `json:"LocalAddr"`
+	RemoteAddr  string    `json:"RemoteAddr"`
+	State       string    `json:"State"`
+	Port        int       `json:"Port"`
+	ProcessName string    `json:"ProcessName"`
+	Timestamp   time.Time `json:"Timestamp"`
+}
+
+// HTTP请求
+type HTTPRequest struct {
+	Method      string    `json:"Method"`
+	Path        string    `json:"Path"`
+	IP          string    `json:"IP"`
+	UserAgent   string    `json:"UserAgent"`
+	StatusCode  int       `json:"StatusCode"`
+	Size        int       `json:"Size"`
+	ThreatScore int       `json:"ThreatScore"`
+	Timestamp   time.Time `json:"Timestamp"`
+}
+
+// 进程信息
+type ProcessInfo struct {
+	PID       int       `json:"PID"`
+	Name      string    `json:"Name"`
+	CPUUsage  float64   `json:"CPUUsage"`
+	Memory    float64   `json:"Memory"`
+	Status    string    `json:"Status"`
+	Timestamp time.Time `json:"Timestamp"`
+}
+
+// 威胁信息
+type Threat struct {
+	ID          string    `json:"ID"`
+	Type        string    `json:"Type"`
+	Severity    string    `json:"Severity"`
+	Source      string    `json:"Source"`
+	Target      string    `json:"Target"`
+	Description string    `json:"Description"`
+	Timestamp   time.Time `json:"Timestamp"`
+	Status      string    `json:"Status"`
+}
+
+// 告警信息
+type Alert struct {
+	ID           string    `json:"ID"`
+	Type         string    `json:"Type"`
+	Message      string    `json:"Message"`
+	Severity     string    `json:"Severity"`
+	Timestamp    time.Time `json:"Timestamp"`
+	Acknowledged bool      `json:"Acknowledged"`
+}
+
 // 流量统计数据
 type TrafficStats struct {
 	Timestamp    time.Time `json:"timestamp"`
