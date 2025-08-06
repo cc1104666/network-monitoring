@@ -41,10 +41,25 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-print_step "1. Installing system dependencies..."
+print_step "1. Fixing package repository issues..."
 
-# Update package list
-apt-get update -qq
+# Fix GPG key issues
+print_status "Fixing GPG key issues..."
+apt-key adv --keyserver keyserver.ubuntu.com --recv-keys B7B3B788A8D3785C 2>/dev/null || true
+
+# Remove problematic repositories temporarily
+if [ -f /etc/apt/sources.list.d/mysql.list ]; then
+    mv /etc/apt/sources.list.d/mysql.list /etc/apt/sources.list.d/mysql.list.bak
+    print_status "Temporarily disabled MySQL repository"
+fi
+
+# Update package list with error handling
+print_status "Updating package lists..."
+apt-get update -qq --allow-releaseinfo-change || {
+    print_warning "Some repositories failed to update, continuing with available packages"
+}
+
+print_step "2. Installing system dependencies..."
 
 # Install required packages
 apt-get install -y \
@@ -52,18 +67,51 @@ apt-get install -y \
     wget \
     git \
     build-essential \
-    nodejs \
-    npm \
-    golang-go \
     systemd \
     ufw \
     htop \
     net-tools \
-    lsof
+    lsof \
+    ca-certificates \
+    gnupg \
+    software-properties-common 2>/dev/null || {
+    print_warning "Some packages failed to install, continuing..."
+}
 
-print_status "System dependencies installed successfully"
+print_step "3. Installing Go..."
 
-print_step "2. Setting up Go environment..."
+# Check if Go is already installed
+if command -v go &> /dev/null; then
+    GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
+    print_status "Go is already installed: $GO_VERSION"
+else
+    print_status "Installing Go..."
+    GO_VERSION="1.21.5"
+    wget -q https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz
+    tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz
+    rm go${GO_VERSION}.linux-amd64.tar.gz
+    
+    # Add Go to PATH
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+    export PATH=$PATH:/usr/local/go/bin
+    
+    print_status "Go ${GO_VERSION} installed successfully"
+fi
+
+print_step "4. Installing Node.js..."
+
+# Check if Node.js is already installed
+if command -v node &> /dev/null; then
+    NODE_VERSION=$(node --version)
+    print_status "Node.js is already installed: $NODE_VERSION"
+else
+    print_status "Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+    apt-get install -y nodejs
+    print_status "Node.js installed successfully"
+fi
+
+print_step "5. Setting up Go environment..."
 
 # Set Go environment variables
 export GOPATH=/usr/local/go
@@ -74,22 +122,22 @@ echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/environment
 # Initialize Go module if not exists
 if [ ! -f "go.mod" ]; then
     print_warning "go.mod not found, initializing Go module..."
-    go mod init network-monitor
+    /usr/local/go/bin/go mod init network-monitor
 fi
 
 # Download Go dependencies
 print_status "Downloading Go dependencies..."
-go mod tidy
-go mod download
+/usr/local/go/bin/go mod tidy
+/usr/local/go/bin/go mod download
 
 print_status "Go environment configured successfully"
 
-print_step "3. Setting up Node.js environment..."
+print_step "6. Setting up Node.js environment..."
 
 # Install Node.js dependencies
 if [ -f "package.json" ]; then
     print_status "Installing Node.js dependencies..."
-    npm install --silent
+    npm install --silent --no-audit --no-fund
     
     # Build the frontend
     print_status "Building React frontend..."
@@ -105,11 +153,11 @@ else
     print_warning "package.json not found, skipping Node.js setup"
 fi
 
-print_step "4. Building Go application..."
+print_step "7. Building Go application..."
 
 # Build the Go application
 print_status "Compiling Go application..."
-go build -o network-monitor *.go
+/usr/local/go/bin/go build -o network-monitor *.go
 
 if [ -f "network-monitor" ]; then
     print_status "Go application built successfully"
@@ -119,7 +167,7 @@ else
     exit 1
 fi
 
-print_step "5. Creating systemd service..."
+print_step "8. Creating systemd service..."
 
 # Create systemd service file
 cat > /etc/systemd/system/network-monitor.service << EOF
@@ -142,6 +190,7 @@ SyslogIdentifier=network-monitor
 # Environment variables
 Environment=GOPATH=/usr/local/go
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin
+Environment=ENABLE_REAL_DATA=true
 
 # Security settings
 NoNewPrivileges=true
@@ -155,19 +204,19 @@ EOF
 
 print_status "Systemd service created"
 
-print_step "6. Configuring firewall..."
+print_step "9. Configuring firewall..."
 
 # Configure UFW firewall
-ufw --force reset
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ssh
-ufw allow 8080/tcp
-ufw --force enable
+ufw --force reset >/dev/null 2>&1
+ufw default deny incoming >/dev/null 2>&1
+ufw default allow outgoing >/dev/null 2>&1
+ufw allow ssh >/dev/null 2>&1
+ufw allow 8080/tcp >/dev/null 2>&1
+ufw --force enable >/dev/null 2>&1
 
 print_status "Firewall configured (port 8080 opened)"
 
-print_step "7. Starting services..."
+print_step "10. Starting services..."
 
 # Reload systemd and start service
 systemctl daemon-reload
@@ -179,7 +228,7 @@ systemctl start network-monitor
 # Wait for service to start
 sleep 5
 
-print_step "8. Verifying installation..."
+print_step "11. Verifying installation..."
 
 # Check service status
 if systemctl is-active --quiet network-monitor; then
@@ -197,7 +246,7 @@ print_status "Testing API endpoints..."
 sleep 3
 
 # Test system info endpoint
-if curl -s -f http://localhost:8080/api/system/info > /dev/null; then
+if curl -s -f --connect-timeout 10 http://localhost:8080/api/system/info > /dev/null; then
     print_status "✅ API endpoint /api/system/info is responding"
 else
     print_warning "⚠️ API endpoint /api/system/info is not responding yet"
@@ -210,7 +259,7 @@ else
     print_status "ℹ️ WebSocket endpoint check completed (expected behavior)"
 fi
 
-print_step "9. Final system check..."
+print_step "12. Final system check..."
 
 # Display service status
 echo ""
@@ -266,5 +315,11 @@ chmod +x check-status.sh
 
 print_status "✅ Status check script created: ./check-status.sh"
 print_status "🚀 Setup completed! The system is ready to use."
+
+# Restore MySQL repository if it was backed up
+if [ -f /etc/apt/sources.list.d/mysql.list.bak ]; then
+    mv /etc/apt/sources.list.d/mysql.list.bak /etc/apt/sources.list.d/mysql.list
+    print_status "Restored MySQL repository"
+fi
 
 exit 0
