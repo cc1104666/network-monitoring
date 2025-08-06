@@ -26,12 +26,34 @@ func main() {
 	go monitor.Start()
 	go threatDetector.Start()
 	
-	// 启动真实数据收集器
-	realDataCollector := NewRealDataCollector(monitor, threatDetector)
-	go realDataCollector.Start()
+	// 检查是否启用真实数据收集
+	enableRealData := os.Getenv("ENABLE_REAL_DATA")
+	if enableRealData == "true" {
+		log.Println("🔍 启用真实数据收集器...")
+		realDataCollector := NewRealDataCollector(monitor, threatDetector)
+		go realDataCollector.Start()
+	} else {
+		log.Println("📊 使用模拟数据模式...")
+	}
 	
 	// 创建路由
 	r := mux.NewRouter()
+	
+	// 添加CORS中间件
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			
+			next.ServeHTTP(w, r)
+		})
+	})
 	
 	// API路由
 	r.HandleFunc("/api/stats", getStatsHandler(monitor)).Methods("GET")
@@ -39,6 +61,9 @@ func main() {
 	r.HandleFunc("/api/threats", getThreatsHandler(threatDetector)).Methods("GET")
 	r.HandleFunc("/api/endpoints", getEndpointsHandler(monitor)).Methods("GET")
 	r.HandleFunc("/api/request-details", getRequestDetailsHandler(monitor)).Methods("GET")
+	
+	// 威胁处理API
+	r.HandleFunc("/api/threats/{id}/{action}", handleThreatActionHandler(threatDetector)).Methods("POST")
 	
 	// 代理数据接收接口
 	r.HandleFunc("/api/agent/metrics", receiveAgentMetrics(monitor)).Methods("POST")
@@ -52,15 +77,50 @@ func main() {
 	// 启动服务器
 	log.Println("🚀 天眼网络监控系统启动在端口 :8080")
 	log.Println("📊 监控面板: http://localhost:8080")
-	log.Println("🔍 真实数据收集器已启用")
+	
+	if enableRealData == "true" {
+		log.Println("🔍 真实数据收集器已启用")
+	} else {
+		log.Println("📊 模拟数据模式已启用")
+	}
+	
 	log.Fatal(http.ListenAndServe(":8080", r))
+}
+
+// 威胁处理API
+func handleThreatActionHandler(detector *ThreatDetector) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		
+		vars := mux.Vars(r)
+		threatID := vars["id"]
+		action := vars["action"]
+		
+		var requestBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			http.Error(w, "解析请求失败", http.StatusBadRequest)
+			return
+		}
+		
+		// 这里可以实现具体的威胁处理逻辑
+		log.Printf("处理威胁 %s: %s", threatID, action)
+		
+		// 模拟处理成功
+		response := map[string]interface{}{
+			"success": true,
+			"message": "威胁处理成功",
+			"threat_id": threatID,
+			"action": action,
+		}
+		
+		json.NewEncoder(w).Encode(response)
+	}
 }
 
 // 接收代理指标数据
 func receiveAgentMetrics(monitor *NetworkMonitor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		
 		var metrics SystemMetrics
 		if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
