@@ -113,6 +113,22 @@ print_step "5. 安装 Node.js 环境"
 if command -v node &> /dev/null; then
     NODE_VERSION=$(node --version)
     print_status "Node.js已安装，版本: $NODE_VERSION"
+    
+    # 检查版本是否足够新
+    NODE_MAJOR=$(echo $NODE_VERSION | cut -d'.' -f1 | sed 's/v//')
+    if [ "$NODE_MAJOR" -lt 18 ]; then
+        print_warning "Node.js版本过低，需要升级到18.x"
+        # 卸载旧版本
+        apt-get remove -y nodejs npm || true
+        apt-get purge -y nodejs npm || true
+        apt-get autoremove -y || true
+        rm -rf /usr/local/bin/node /usr/local/bin/npm /usr/local/lib/node_modules ~/.npm ~/.node-gyp
+        
+        # 安装新版本
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+        apt-get install -y nodejs
+        print_status "Node.js 18.x 安装完成"
+    fi
 else
     print_status "安装Node.js..."
     
@@ -154,6 +170,9 @@ print_step "7. 构建前端应用"
 
 # 检查package.json是否存在
 if [ -f "package.json" ]; then
+    print_status "清理现有依赖..."
+    rm -rf node_modules package-lock.json
+    
     print_status "安装Node.js依赖..."
     npm install --silent --no-audit --no-fund
     

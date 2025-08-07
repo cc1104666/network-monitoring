@@ -42,25 +42,26 @@ type NetworkConnection struct {
 
 // ProcessInfo represents process information
 type ProcessInfo struct {
-	PID         int     `json:"pid"`
+	PID         int32   `json:"pid"`
 	Name        string  `json:"name"`
 	CPUPercent  float64 `json:"cpu_percent"`
-	MemoryMB    float64 `json:"memory_mb"`
+	MemoryMB    float32 `json:"memory_mb"`
 	Status      string  `json:"status"`
-	CreateTime  string  `json:"create_time"`
+	CreateTime  int64   `json:"create_time"`
+	Connections int     `json:"connections"`
 }
 
 // Threat represents a security threat
 type Threat struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Severity    string                 `json:"severity"`
-	Source      string                 `json:"source"`
-	Target      string                 `json:"target"`
-	Description string                 `json:"description"`
-	Timestamp   string                 `json:"timestamp"`
-	Status      string                 `json:"status"`
-	Details     map[string]interface{} `json:"details"`
+	ID          string    `json:"id"`
+	Type        string    `json:"type"`
+	Level       string    `json:"level"`
+	Source      string    `json:"source"`
+	Target      string    `json:"target"`
+	Description string    `json:"description"`
+	Timestamp   time.Time `json:"timestamp"`
+	Count       int       `json:"count"`
+	Status      string    `json:"status"`
 }
 
 // AlertInfo represents system alerts
@@ -77,14 +78,13 @@ type AlertInfo struct {
 
 // SystemInfo represents basic system information
 type SystemInfo struct {
-	Hostname           string    `json:"hostname"`
-	Uptime            string    `json:"uptime"`
-	LoadAverage       []float64 `json:"load_average"`
-	MemoryUsage       float64   `json:"memory_usage"`
-	DiskUsage         float64   `json:"disk_usage"`
-	NetworkInterfaces []string  `json:"network_interfaces"`
-	ActiveConnections int       `json:"active_connections"`
-	ListeningPorts    []int     `json:"listening_ports"`
+	Hostname        string `json:"hostname"`
+	OS              string `json:"os"`
+	Platform        string `json:"platform"`
+	PlatformVersion string `json:"platform_version"`
+	Architecture    string `json:"architecture"`
+	Uptime          uint64 `json:"uptime"`
+	BootTime        uint64 `json:"boot_time"`
 }
 
 // NetworkStats 网络统计结构
@@ -128,11 +128,10 @@ type ConnectionInfo struct {
 
 // NetworkInterface 网络接口结构
 type NetworkInterface struct {
-	Name      string   `json:"name"`
-	Addresses []string `json:"addresses"`
-	IsUp      bool     `json:"is_up"`
-	BytesSent int64    `json:"bytes_sent"`
-	BytesRecv int64    `json:"bytes_recv"`
+	Name      string `json:"name"`
+	BytesSent uint64 `json:"bytes_sent"`
+	BytesRecv uint64 `json:"bytes_recv"`
+	IsUp      bool   `json:"is_up"`
 }
 
 // DiskInfo 磁盘信息结构
@@ -155,6 +154,8 @@ type MemoryInfo struct {
 	Free        uint64  `json:"free"`
 	Buffers     uint64  `json:"buffers"`
 	Cached      uint64  `json:"cached"`
+	SwapTotal   uint64  `json:"swap_total"`
+	SwapUsed    uint64  `json:"swap_used"`
 }
 
 // CPUInfo CPU信息结构
@@ -246,4 +247,61 @@ func NewRealDataCollector() *RealDataCollector {
 			LastAttack:  "无",
 		},
 	}
+}
+
+// SystemData 系统数据结构
+type SystemData struct {
+	Timestamp    time.Time     `json:"timestamp"`
+	CPU          CPUInfo       `json:"cpu"`
+	Memory       MemoryInfo    `json:"memory"`
+	Disk         DiskInfo      `json:"disk"`
+	Network      NetworkInfo   `json:"network"`
+	Processes    []ProcessInfo `json:"processes"`
+	Connections  []Connection  `json:"connections"`
+	Threats      []Threat      `json:"threats"`
+	SystemInfo   SystemInfo    `json:"system_info"`
+}
+
+// Connection 网络连接
+type Connection struct {
+	LocalAddr  string `json:"local_addr"`
+	RemoteAddr string `json:"remote_addr"`
+	Status     string `json:"status"`
+	PID        int32  `json:"pid"`
+	Process    string `json:"process"`
+}
+
+// Agent 代理信息
+type Agent struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Host     string    `json:"host"`
+	Port     int       `json:"port"`
+	Status   string    `json:"status"`
+	LastSeen time.Time `json:"last_seen"`
+	Version  string    `json:"version"`
+	OS       string    `json:"os"`
+}
+
+// AlertRule 告警规则
+type AlertRule struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Type        string  `json:"type"`
+	Condition   string  `json:"condition"`
+	Threshold   float64 `json:"threshold"`
+	Enabled     bool    `json:"enabled"`
+	Description string  `json:"description"`
+}
+
+// Alert 告警信息
+type Alert struct {
+	ID          string    `json:"id"`
+	RuleID      string    `json:"rule_id"`
+	Level       string    `json:"level"`
+	Title       string    `json:"title"`
+	Message     string    `json:"message"`
+	Timestamp   time.Time `json:"timestamp"`
+	Status      string    `json:"status"`
+	Source      string    `json:"source"`
 }

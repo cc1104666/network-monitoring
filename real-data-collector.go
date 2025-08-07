@@ -12,6 +12,13 @@ import (
 	"strings"
 	"time"
 	"net"
+
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/host"
+	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/shirou/gopsutil/v3/net"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 // RealDataCollector collects real system data
@@ -22,6 +29,8 @@ type RealDataCollector struct {
 	connections    []ConnectionInfo
 	processes      []ProcessInfo
 	startTime      time.Time
+	lastNetworkStats net.IOCountersStat
+	lastUpdateTime   time.Time
 }
 
 // NetworkStats holds network statistics
@@ -55,6 +64,7 @@ type ProcessInfo struct {
 	Timestamp   string
 	CommandLine string
 	CreateTime  string
+	Connections int
 }
 
 // SystemInfo holds basic system information
@@ -73,6 +83,9 @@ type SystemInfo struct {
 	NetworkInterfaces  []string
 	ActiveConnections  int
 	ListeningPorts     []int
+	PlatformVersion    string
+	Architecture       string
+	BootTime           int64
 }
 
 // SystemMetrics holds current system metrics
@@ -98,6 +111,71 @@ type NetworkMetrics struct {
 	Connections int
 }
 
+// SystemData holds all system data
+type SystemData struct {
+	Timestamp   time.Time
+	CPU         CPUInfo
+	Memory      MemoryInfo
+	Disk        DiskInfo
+	Network     NetworkInfo
+	Processes   []ProcessInfo
+	Connections []ConnectionInfo
+	SystemInfo  SystemInfo
+	Threats     []Threat
+}
+
+// CPUInfo holds CPU information
+type CPUInfo struct {
+	Cores       int
+	Usage       float64
+	LoadAvg     float64
+	Frequency   float64
+}
+
+// MemoryInfo holds memory information
+type MemoryInfo struct {
+	Total         uint64
+	Used          uint64
+	Available     uint64
+	UsagePercent  float64
+	SwapTotal     uint64
+	SwapUsed      uint64
+}
+
+// DiskInfo holds disk information
+type DiskInfo struct {
+	Total         uint64
+	Used          uint64
+	Free          uint64
+	UsagePercent  float64
+}
+
+// NetworkInfo holds network information
+type NetworkInfo struct {
+	BytesSent     uint64
+	BytesRecv     uint64
+	PacketsSent   uint64
+	PacketsRecv   uint64
+	Connections   int
+	ListenPorts   []int
+	Interfaces    []NetworkInterface
+}
+
+// NetworkInterface holds information about a network interface
+type NetworkInterface struct {
+	Name      string
+	BytesSent uint64
+	BytesRecv uint64
+	IsUp      bool
+}
+
+// Threat holds information about a threat
+type Threat struct {
+	IP          string
+	Description string
+	Timestamp   string
+}
+
 // NewRealDataCollector creates a new real data collector
 func NewRealDataCollector() *RealDataCollector {
 	hostname, _ := os.Hostname()
@@ -111,51 +189,261 @@ func NewRealDataCollector() *RealDataCollector {
 		connections: make([]ConnectionInfo, 0),
 		processes:   make([]ProcessInfo, 0),
 		startTime:   time.Now(),
+		lastUpdateTime: time.Now(),
 	}
 }
 
-// GetSystemInfo returns basic system information
-func (r *RealDataCollector) GetSystemInfo() (*SystemInfo, error) {
-	info := &SystemInfo{
-		Hostname:        r.hostname,
-		OS:              runtime.GOOS,
-		Platform:        runtime.GOARCH,
-		CPUCores:        runtime.NumCPU(),
-		RealDataEnabled: r.enabled,
+// Start 启动数据收集
+func (c *RealDataCollector) Start() {
+	log.Println("🔍 启动真实数据收集器...")
+	
+	// 初始化网络统计
+	if netStats, err := net.IOCounters(false); err == nil && len(netStats) > 0 {
+		c.lastNetworkStats = netStats[0]
 	}
+	
+	log.Println("✅ 数据收集器启动成功")
+}
 
-	// Get uptime (Linux/Unix only)
-	if runtime.GOOS == "linux" {
-		if uptime, err := r.getUptime(); err == nil {
-			info.Uptime = uptime
+// GetSystemData 获取系统数据
+func (c *RealDataCollector) GetSystemData() SystemData {
+	now := time.Now()
+	
+	data := SystemData{
+		Timestamp:   now,
+		CPU:         c.getCPUInfo(),
+		Memory:      c.getMemoryInfo(),
+		Disk:        c.getDiskInfo(),
+		Network:     c.getNetworkInfo(),
+		Processes:   c.getProcessInfo(),
+		Connections: c.getConnections(),
+		SystemInfo:  c.getSystemInfo(),
+		Threats:     []Threat{}, // 威胁数据由ThreatDetector提供
+	}
+	
+	return data
+}
+
+// getCPUInfo 获取CPU信息
+func (c *RealDataCollector) getCPUInfo() CPUInfo {
+	cpuInfo := CPUInfo{
+		Cores: runtime.NumCPU(),
+	}
+	
+	// 获取CPU使用率
+	if percentages, err := cpu.Percent(time.Second, false); err == nil && len(percentages) > 0 {
+		cpuInfo.Usage = percentages[0]
+	}
+	
+	// 获取负载平均值
+	if loadAvg, err := host.LoadAvg(); err == nil {
+		cpuInfo.LoadAvg = loadAvg.Load1
+	}
+	
+	// 获取CPU频率
+	if cpuInfos, err := cpu.Info(); err == nil && len(cpuInfos) > 0 {
+		cpuInfo.Frequency = cpuInfos[0].Mhz
+	}
+	
+	return cpuInfo
+}
+
+// getMemoryInfo 获取内存信息
+func (c *RealDataCollector) getMemoryInfo() MemoryInfo {
+	memInfo := MemoryInfo{}
+	
+	if vmStat, err := mem.VirtualMemory(); err == nil {
+		memInfo.Total = vmStat.Total
+		memInfo.Used = vmStat.Used
+		memInfo.Available = vmStat.Available
+		memInfo.UsagePercent = vmStat.UsedPercent
+	}
+	
+	if swapStat, err := mem.SwapMemory(); err == nil {
+		memInfo.SwapTotal = swapStat.Total
+		memInfo.SwapUsed = swapStat.Used
+	}
+	
+	return memInfo
+}
+
+// getDiskInfo 获取磁盘信息
+func (c *RealDataCollector) getDiskInfo() DiskInfo {
+	diskInfo := DiskInfo{}
+	
+	if usage, err := disk.Usage("/"); err == nil {
+		diskInfo.Total = usage.Total
+		diskInfo.Used = usage.Used
+		diskInfo.Free = usage.Free
+		diskInfo.UsagePercent = usage.UsedPercent
+	}
+	
+	return diskInfo
+}
+
+// getNetworkInfo 获取网络信息
+func (c *RealDataCollector) getNetworkInfo() NetworkInfo {
+	networkInfo := NetworkInfo{}
+	
+	// 获取网络IO统计
+	if netStats, err := net.IOCounters(false); err == nil && len(netStats) > 0 {
+		stat := netStats[0]
+		networkInfo.BytesSent = stat.BytesSent
+		networkInfo.BytesRecv = stat.BytesRecv
+		networkInfo.PacketsSent = stat.PacketsSent
+		networkInfo.PacketsRecv = stat.PacketsRecv
+	}
+	
+	// 获取网络接口信息
+	if interfaces, err := net.IOCounters(true); err == nil {
+		for _, iface := range interfaces {
+			networkInfo.Interfaces = append(networkInfo.Interfaces, NetworkInterface{
+				Name:      iface.Name,
+				BytesSent: iface.BytesSent,
+				BytesRecv: iface.BytesRecv,
+				IsUp:      true, // 简化处理
+			})
 		}
 	}
-
-	// Get CPU model (Linux only)
-	if runtime.GOOS == "linux" {
-		if cpuModel, err := r.getCPUModel(); err == nil {
-			info.CPUModel = cpuModel
+	
+	// 获取网络连接数
+	if connections, err := net.Connections("inet"); err == nil {
+		networkInfo.Connections = len(connections)
+		
+		// 获取监听端口
+		portMap := make(map[int]bool)
+		for _, conn := range connections {
+			if conn.Status == "LISTEN" {
+				portMap[int(conn.Laddr.Port)] = true
+			}
+		}
+		
+		for port := range portMap {
+			networkInfo.ListenPorts = append(networkInfo.ListenPorts, port)
 		}
 	}
+	
+	return networkInfo
+}
 
-	// Get total memory (Linux only)
-	if runtime.GOOS == "linux" {
-		if totalMem, err := r.getTotalMemory(); err == nil {
-			info.TotalMemory = totalMem
+// getProcessInfo 获取进程信息
+func (c *RealDataCollector) getProcessInfo() []ProcessInfo {
+	var processes []ProcessInfo
+	
+	pids, err := process.Pids()
+	if err != nil {
+		return processes
+	}
+	
+	// 限制返回的进程数量，避免数据过大
+	maxProcesses := 20
+	count := 0
+	
+	for _, pid := range pids {
+		if count >= maxProcesses {
+			break
+		}
+		
+		proc, err := process.NewProcess(pid)
+		if err != nil {
+			continue
+		}
+		
+		name, _ := proc.Name()
+		cpuPercent, _ := proc.CPUPercent()
+		memInfo, _ := proc.MemoryInfo()
+		status, _ := proc.Status()
+		createTime, _ := proc.CreateTime()
+		
+		// 获取进程的网络连接数
+		connections, _ := proc.Connections()
+		
+		var memoryMB float32
+		if memInfo != nil {
+			memoryMB = float32(memInfo.RSS) / 1024 / 1024
+		}
+		
+		processes = append(processes, ProcessInfo{
+			PID:         pid,
+			Name:        name,
+			CPUPercent:  cpuPercent,
+			MemoryMB:    memoryMB,
+			Status:      status[0], // 取第一个状态
+			CreateTime:  createTime,
+			Connections: len(connections),
+		})
+		
+		count++
+	}
+	
+	return processes
+}
+
+// getConnections 获取网络连接信息
+func (c *RealDataCollector) getConnections() []ConnectionInfo {
+	var connections []ConnectionInfo
+	
+	netConnections, err := net.Connections("inet")
+	if err != nil {
+		return connections
+	}
+	
+	// 限制返回的连接数量
+	maxConnections := 50
+	count := 0
+	
+	for _, conn := range netConnections {
+		if count >= maxConnections {
+			break
+		}
+		
+		var processName string
+		if conn.Pid != 0 {
+			if proc, err := process.NewProcess(conn.Pid); err == nil {
+				if name, err := proc.Name(); err == nil {
+					processName = name
+				}
+			}
+		}
+		
+		connections = append(connections, ConnectionInfo{
+			Protocol:    "TCP",
+			LocalAddr:   fmt.Sprintf("%s:%d", conn.Laddr.IP, conn.Laddr.Port),
+			RemoteAddr:  fmt.Sprintf("%s:%d", conn.Raddr.IP, conn.Raddr.Port),
+			State:       conn.Status,
+			ProcessName: processName,
+			PID:         int(conn.Pid),
+			Timestamp:   time.Now().Format(time.RFC3339),
+		})
+		
+		count++
+	}
+	
+	return connections
+}
+
+// getSystemInfo 获取系统基本信息
+func (c *RealDataCollector) getSystemInfo() SystemInfo {
+	systemInfo := SystemInfo{}
+	
+	if hostInfo, err := host.Info(); err == nil {
+		systemInfo.Hostname = hostInfo.Hostname
+		systemInfo.OS = hostInfo.OS
+		systemInfo.Platform = hostInfo.Platform
+		systemInfo.PlatformVersion = hostInfo.PlatformVersion
+		systemInfo.Architecture = hostInfo.KernelArch
+		systemInfo.Uptime = fmt.Sprintf("%d 秒", hostInfo.Uptime)
+		systemInfo.BootTime = hostInfo.BootTime
+	}
+	
+	// 如果无法获取主机名，使用环境变量
+	if systemInfo.Hostname == "" {
+		if hostname, err := os.Hostname(); err == nil {
+			systemInfo.Hostname = hostname
 		}
 	}
-
-	// Get system info
-	sysInfo := r.GetSystemInfo()
-	info.Uptime = sysInfo.Uptime
-	info.LoadAverage = sysInfo.LoadAverage
-	info.MemoryUsage = sysInfo.MemoryUsage
-	info.DiskUsage = sysInfo.DiskUsage
-	info.NetworkInterfaces = sysInfo.NetworkInterfaces
-	info.ActiveConnections = sysInfo.ActiveConnections
-	info.ListeningPorts = sysInfo.ListeningPorts
-
-	return info, nil
+	
+	return systemInfo
 }
 
 // GetSystemMetrics returns current system metrics
@@ -186,17 +474,6 @@ func (r *RealDataCollector) GetSystemMetrics() (*SystemMetrics, error) {
 	// Get network metrics
 	if network, err := r.getNetworkMetrics(); err == nil {
 		metrics.Network = *network
-	}
-
-	// Get load average (Linux only)
-	if runtime.GOOS == "linux" {
-		if loadAvg, err := r.getLoadAverage(); err == nil {
-			metrics.Network.BytesSent = loadAvg[0]
-			metrics.Network.BytesRecv = loadAvg[1]
-			metrics.Network.PacketsSent = loadAvg[2]
-			metrics.Network.PacketsRecv = loadAvg[3]
-			metrics.Network.Connections = int(loadAvg[4])
-		}
 	}
 
 	// Get process count
@@ -240,7 +517,7 @@ func (r *RealDataCollector) GetNetworkConnections() ([]ConnectionInfo, error) {
 func (rdc *RealDataCollector) GetNetworkStats() *NetworkStats {
 	// 模拟网络统计数据
 	rdc.networkStats.TotalRequests += rand.Intn(10) + 1
-	rdc.networkStats.ActiveConnections = getActiveConnections()
+	rdc.networkStats.ActiveConnections = rdc.getActiveConnections()
 	
 	// 随机生成一些威胁数据
 	if rand.Intn(100) < 5 { // 5% 概率

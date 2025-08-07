@@ -2,235 +2,226 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
-	"net"
-	"strings"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/net"
 )
 
-type ThreatInfo struct {
-	IP            string
-	Country       string
-	ThreatType    string
-	Severity      string
-	Timestamp     time.Time
-	Blocked       bool
-	RequestsCount int
-}
-
+// ThreatDetector 威胁检测器
 type ThreatDetector struct {
-	recentThreats []ThreatInfo
-	suspiciousIPs map[string]int
-	blockedIPs    map[string]time.Time
-	threats       []ThreatInfo
+	threats           []Threat
+	connectionHistory map[string]int
+	lastCheck         time.Time
 }
 
+// NewThreatDetector 创建新的威胁检测器
 func NewThreatDetector() *ThreatDetector {
 	return &ThreatDetector{
-		recentThreats: make([]ThreatInfo, 0),
-		suspiciousIPs: make(map[string]int),
-		blockedIPs:    make(map[string]time.Time),
-		threats:       make([]ThreatInfo, 0),
+		threats:           make([]Threat, 0),
+		connectionHistory: make(map[string]int),
+		lastCheck:         time.Now(),
 	}
 }
 
-// DetectThreats 检测威胁
-func (td *ThreatDetector) DetectThreats() []ThreatInfo {
-	newThreats := []ThreatInfo{}
-
-	// 随机生成威胁（模拟真实检测）
-	if rand.Intn(100) < 10 { // 10% 概率生成威胁
-		threat := ThreatInfo{
-			IP:            generateRandomIP(),
-			Country:       getRandomCountry(),
-			ThreatType:    getRandomThreatType(),
-			Severity:      getRandomSeverity(),
-			Timestamp:     time.Now(),
-			Blocked:       rand.Intn(2) == 1,
-			RequestsCount: rand.Intn(100) + 1,
+// Start 启动威胁检测
+func (td *ThreatDetector) Start() {
+	log.Println("🛡️ 启动威胁检测器...")
+	
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-ticker.C:
+				td.detectThreats()
+			}
 		}
+	}()
+	
+	log.Println("✅ 威胁检测器启动成功")
+}
 
-		td.threats = append(td.threats, threat)
-		newThreats = append(newThreats, threat)
+// detectThreats 检测威胁
+func (td *ThreatDetector) detectThreats() {
+	now := time.Now()
+	
+	// 检测网络异常
+	td.detectNetworkAnomalies()
+	
+	// 检测可疑连接
+	td.detectSuspiciousConnections()
+	
+	// 生成一些示例威胁（用于演示）
+	td.generateSampleThreats()
+	
+	// 清理过期威胁
+	td.cleanupOldThreats()
+	
+	td.lastCheck = now
+}
 
-		// 限制威胁列表长度
-		if len(td.threats) > 100 {
-			td.threats = td.threats[1:]
+// detectNetworkAnomalies 检测网络异常
+func (td *ThreatDetector) detectNetworkAnomalies() {
+	connections, err := net.Connections("inet")
+	if err != nil {
+		return
+	}
+	
+	// 统计连接数
+	connectionCount := len(connections)
+	
+	// 如果连接数异常高，生成威胁警报
+	if connectionCount > 1000 {
+		threat := Threat{
+			ID:          fmt.Sprintf("net-anomaly-%d", time.Now().Unix()),
+			Type:        "network_anomaly",
+			Level:       "high",
+			Source:      "system",
+			Target:      "localhost",
+			Description: fmt.Sprintf("检测到异常高的网络连接数: %d", connectionCount),
+			Timestamp:   time.Now(),
+			Count:       connectionCount,
+			Status:      "active",
 		}
+		td.addThreat(threat)
 	}
-
-	return newThreats
 }
 
-func (td *ThreatDetector) GetRecentThreats() []ThreatInfo {
-	// 返回最近50个威胁
-	if len(td.threats) <= 50 {
-		return td.threats
+// detectSuspiciousConnections 检测可疑连接
+func (td *ThreatDetector) detectSuspiciousConnections() {
+	connections, err := net.Connections("inet")
+	if err != nil {
+		return
 	}
-	return td.threats[len(td.threats)-50:]
-}
-
-func (td *ThreatDetector) IsIPBlocked(ip string) bool {
-	_, blocked := td.blockedIPs[ip]
-	return blocked
-}
-
-func (td *ThreatDetector) GetSuspiciousIPs() map[string]int {
-	return td.suspiciousIPs
-}
-
-func (td *ThreatDetector) GetBlockedIPs() map[string]time.Time {
-	return td.blockedIPs
-}
-
-// 分析网络流量模式
-func (td *ThreatDetector) AnalyzeTrafficPattern(ip string, requestCount int, timeWindow time.Duration) string {
-	// 简单的流量分析逻辑
-	requestsPerMinute := float64(requestCount) / timeWindow.Minutes()
-
-	if requestsPerMinute > 100 {
-		return "CRITICAL"
-	} else if requestsPerMinute > 50 {
-		return "HIGH"
-	} else if requestsPerMinute > 20 {
-		return "MEDIUM"
+	
+	suspiciousPorts := map[uint32]string{
+		22:   "SSH暴力破解尝试",
+		3389: "RDP暴力破解尝试",
+		21:   "FTP暴力破解尝试",
+		23:   "Telnet连接尝试",
 	}
-
-	return "LOW"
-}
-
-// 检查IP是否在已知恶意IP列表中
-func (td *ThreatDetector) CheckMaliciousIP(ip string) bool {
-	// 这里应该查询真实的威胁情报数据库
-	// 目前使用模拟数据
-	maliciousIPs := []string{
-		"192.168.1.100",
-		"10.0.0.50",
-		"172.16.0.200",
-	}
-
-	for _, maliciousIP := range maliciousIPs {
-		if ip == maliciousIP {
-			return true
-		}
-	}
-
-	return false
-}
-
-// 检测异常用户代理
-func (td *ThreatDetector) DetectAnomalousUserAgent(userAgent string) bool {
-	suspiciousPatterns := []string{
-		"sqlmap",
-		"nikto",
-		"nmap",
-		"masscan",
-		"python-requests",
-		"curl/",
-		"wget/",
-	}
-
-	userAgentLower := strings.ToLower(userAgent)
-
-	for _, pattern := range suspiciousPatterns {
-		if strings.Contains(userAgentLower, pattern) {
-			return true
+	
+	for _, conn := range connections {
+		if conn.Status == "ESTABLISHED" {
+			if description, exists := suspiciousPorts[conn.Laddr.Port]; exists {
+				// 检查是否为外部连接
+				if conn.Raddr.IP != "127.0.0.1" && conn.Raddr.IP != "::1" {
+					threat := Threat{
+						ID:          fmt.Sprintf("suspicious-conn-%s-%d", conn.Raddr.IP, time.Now().Unix()),
+						Type:        "suspicious_connection",
+						Level:       "medium",
+						Source:      conn.Raddr.IP,
+						Target:      fmt.Sprintf("%s:%d", conn.Laddr.IP, conn.Laddr.Port),
+						Description: description,
+						Timestamp:   time.Now(),
+						Count:       1,
+						Status:      "active",
+					}
+					td.addThreat(threat)
+				}
+			}
 		}
 	}
-
-	return false
 }
 
-// 检测SQL注入尝试
-func (td *ThreatDetector) DetectSQLInjection(request string) bool {
-	sqlPatterns := []string{
-		"union select",
-		"' or '1'='1",
-		"' or 1=1",
-		"drop table",
-		"insert into",
-		"delete from",
-		"update set",
-		"exec(",
-		"execute(",
-		"sp_",
-		"xp_",
+// generateSampleThreats 生成示例威胁（用于演示）
+func (td *ThreatDetector) generateSampleThreats() {
+	// 随机生成一些威胁用于演示
+	if rand.Intn(10) < 3 { // 30%概率生成威胁
+		sampleThreats := []Threat{
+			{
+				ID:          fmt.Sprintf("ddos-%d", time.Now().Unix()),
+				Type:        "ddos_attack",
+				Level:       "critical",
+				Source:      fmt.Sprintf("192.168.1.%d", rand.Intn(255)),
+				Target:      "localhost:80",
+				Description: "检测到DDoS攻击尝试",
+				Timestamp:   time.Now(),
+				Count:       rand.Intn(1000) + 100,
+				Status:      "active",
+			},
+			{
+				ID:          fmt.Sprintf("brute-force-%d", time.Now().Unix()),
+				Type:        "brute_force",
+				Level:       "high",
+				Source:      fmt.Sprintf("10.0.0.%d", rand.Intn(255)),
+				Target:      "localhost:22",
+				Description: "SSH暴力破解尝试",
+				Timestamp:   time.Now(),
+				Count:       rand.Intn(50) + 10,
+				Status:      "active",
+			},
+			{
+				ID:          fmt.Sprintf("port-scan-%d", time.Now().Unix()),
+				Type:        "port_scan",
+				Level:       "medium",
+				Source:      fmt.Sprintf("172.16.0.%d", rand.Intn(255)),
+				Target:      "localhost",
+				Description: "端口扫描活动",
+				Timestamp:   time.Now(),
+				Count:       rand.Intn(100) + 20,
+				Status:      "active",
+			},
+		}
+		
+		// 随机选择一个威胁
+		threat := sampleThreats[rand.Intn(len(sampleThreats))]
+		td.addThreat(threat)
 	}
+}
 
-	requestLower := strings.ToLower(request)
-
-	for _, pattern := range sqlPatterns {
-		if strings.Contains(requestLower, pattern) {
-			return true
+// addThreat 添加威胁
+func (td *ThreatDetector) addThreat(threat Threat) {
+	// 检查是否已存在相同的威胁
+	for i, existingThreat := range td.threats {
+		if existingThreat.Source == threat.Source && existingThreat.Type == threat.Type {
+			// 更新现有威胁
+			td.threats[i].Count += threat.Count
+			td.threats[i].Timestamp = threat.Timestamp
+			return
 		}
 	}
-
-	return false
+	
+	// 添加新威胁
+	td.threats = append(td.threats, threat)
+	
+	// 限制威胁数量
+	if len(td.threats) > 100 {
+		td.threats = td.threats[1:]
+	}
+	
+	log.Printf("🚨 检测到威胁: %s - %s", threat.Type, threat.Description)
 }
 
-// 检测XSS尝试
-func (td *ThreatDetector) DetectXSS(request string) bool {
-	xssPatterns := []string{
-		"<script",
-		"javascript:",
-		"onload=",
-		"onerror=",
-		"onclick=",
-		"onmouseover=",
-		"alert(",
-		"document.cookie",
-		"document.write",
-	}
-
-	requestLower := strings.ToLower(request)
-
-	for _, pattern := range xssPatterns {
-		if strings.Contains(requestLower, pattern) {
-			return true
+// cleanupOldThreats 清理过期威胁
+func (td *ThreatDetector) cleanupOldThreats() {
+	cutoff := time.Now().Add(-1 * time.Hour) // 保留1小时内的威胁
+	
+	var activeThreat []Threat
+	for _, threat := range td.threats {
+		if threat.Timestamp.After(cutoff) {
+			activeThreat = append(activeThreat, threat)
 		}
 	}
-
-	return false
+	
+	td.threats = activeThreat
 }
 
-// 辅助函数
-
-func generateRandomIP() string {
-	return fmt.Sprintf("%d.%d.%d.%d",
-		rand.Intn(255)+1,
-		rand.Intn(255),
-		rand.Intn(255),
-		rand.Intn(255))
+// GetThreats 获取威胁列表
+func (td *ThreatDetector) GetThreats() []Threat {
+	return td.threats
 }
 
-func getRandomCountry() string {
-	countries := []string{"中国", "美国", "俄罗斯", "德国", "英国", "法国", "日本", "韩国", "印度", "巴西"}
-	return countries[rand.Intn(len(countries))]
-}
-
-func getRandomThreatType() string {
-	types := []string{"SQL注入", "XSS攻击", "暴力破解", "DDoS攻击", "端口扫描", "恶意爬虫", "木马植入", "钓鱼攻击"}
-	return types[rand.Intn(len(types))]
-}
-
-func getRandomSeverity() string {
-	severities := []string{"LOW", "MEDIUM", "HIGH", "CRITICAL"}
-	weights := []int{40, 30, 20, 10} // 权重：低40%，中30%，高20%，严重10%
-
-	total := 0
-	for _, w := range weights {
-		total += w
+// GetThreatStats 获取威胁统计
+func (td *ThreatDetector) GetThreatStats() map[string]int {
+	stats := make(map[string]int)
+	
+	for _, threat := range td.threats {
+		stats[threat.Level]++
 	}
-
-	r := rand.Intn(total)
-	current := 0
-
-	for i, w := range weights {
-		current += w
-		if r < current {
-			return severities[i]
-		}
-	}
-
-	return "LOW"
+	
+	return stats
 }
