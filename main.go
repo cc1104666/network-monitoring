@@ -6,249 +6,317 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/rs/cors"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // 允许所有来源的WebSocket连接
-	},
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-}
-
-// 全局变量
 var (
-	clients    = make(map[*websocket.Conn]bool)
-	broadcast  = make(chan SystemData)
-	collector  *RealDataCollector
-	detector   *ThreatDetector
+	dataCollector  *RealDataCollector
+	threatDetector *ThreatDetector
+	upgrader       = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // 允许所有来源的WebSocket连接
+		},
+	}
 )
 
 func main() {
-	fmt.Println("🚀 启动天眼网络监控系统...")
-	
-	// 初始化数据收集器和威胁检测器
-	collector = NewRealDataCollector()
-	detector = NewThreatDetector()
-	
-	// 启动数据收集
-	go collector.Start()
-	go detector.Start()
-	
-	// 启动WebSocket广播处理
-	go handleMessages()
-	
-	// 定期发送系统数据
-	go func() {
-		ticker := time.NewTicker(3 * time.Second)
-		defer ticker.Stop()
-		
-		for {
-			select {
-			case <-ticker.C:
-				data := collector.GetSystemData()
-				broadcast <- data
-			}
-		}
-	}()
-	
+	log.Println("🚀 启动网络监控系统...")
+
+	// 初始化组件
+	dataCollector = NewRealDataCollector()
+	threatDetector = NewThreatDetector()
+
+	// 启动组件
+	dataCollector.Start()
+	threatDetector.Start()
+
 	// 设置路由
 	router := mux.NewRouter()
-	
+
 	// API路由
 	api := router.PathPrefix("/api").Subrouter()
-	api.HandleFunc("/system/info", handleSystemInfo).Methods("GET")
-	api.HandleFunc("/agents", handleAgents).Methods("GET")
+	api.HandleFunc("/metrics", handleMetrics).Methods("GET")
 	api.HandleFunc("/threats", handleThreats).Methods("GET")
+	api.HandleFunc("/connections", handleConnections).Methods("GET")
+	api.HandleFunc("/processes", handleProcesses).Methods("GET")
+	api.HandleFunc("/system", handleSystemInfo).Methods("GET")
 	api.HandleFunc("/ws", handleWebSocket)
-	
+
 	// 静态文件服务
-	// 首先尝试服务Next.js构建的文件
-	if _, err := os.Stat("out"); err == nil {
-		fmt.Println("📁 使用Next.js构建文件 (out目录)")
-		router.PathPrefix("/").Handler(http.FileServer(http.Dir("out/")))
-	} else if _, err := os.Stat(".next"); err == nil {
-		fmt.Println("📁 使用Next.js开发文件 (.next目录)")
-		router.PathPrefix("/").Handler(http.FileServer(http.Dir(".next/")))
-	} else if _, err := os.Stat("static"); err == nil {
-		fmt.Println("📁 使用静态HTML文件")
-		router.PathPrefix("/").Handler(http.FileServer(http.Dir("static/")))
-	} else {
-		// 创建一个简单的默认页面
-		router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			html := `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>天眼网络监控系统</title>
-    <meta charset="utf-8">
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; text-align: center; }
-        .status { background: #e8f5e8; padding: 15px; border-radius: 5px; margin: 20px 0; }
-        .api-list { background: #f8f9fa; padding: 15px; border-radius: 5px; }
-        .api-item { margin: 10px 0; }
-        a { color: #007bff; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🔍 天眼网络监控系统</h1>
-        <div class="status">
-            <h3>✅ 系统状态：运行中</h3>
-            <p>监控服务已启动，WebSocket连接可用</p>
-        </div>
-        
-        <div class="api-list">
-            <h3>📊 API接口</h3>
-            <div class="api-item">
-                <strong>系统信息:</strong> <a href="/api/system/info">/api/system/info</a>
-            </div>
-            <div class="api-item">
-                <strong>代理列表:</strong> <a href="/api/agents">/api/agents</a>
-            </div>
-            <div class="api-item">
-                <strong>威胁数据:</strong> <a href="/api/threats">/api/threats</a>
-            </div>
-            <div class="api-item">
-                <strong>WebSocket:</strong> ws://localhost:8080/api/ws
-            </div>
-        </div>
-        
-        <div style="margin-top: 30px; text-align: center; color: #666;">
-            <p>前端界面构建中... 请使用API接口访问数据</p>
-        </div>
-    </div>
-</body>
-</html>`
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write([]byte(html))
-		})
+	staticDir := "./static"
+	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+		staticDir = "."
 	}
-	
-	// 启动服务器
+	router.PathPrefix("/").Handler(http.FileServer(http.Dir(staticDir)))
+
+	// 设置CORS
+	c := cors.New(cors.Options{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{"*"},
+	})
+
+	handler := c.Handler(router)
+
+	// 启动HTTP服务器
 	port := "8080"
-	fmt.Printf("🌐 服务器启动在端口 %s\n", port)
-	fmt.Printf("📊 访问地址: http://localhost:%s\n", port)
-	fmt.Printf("🔌 WebSocket: ws://localhost:%s/api/ws\n", port)
-	
-	log.Fatal(http.ListenAndServe(":"+port, router))
-}
-
-func handleMessages() {
-	for {
-		msg := <-broadcast
-		for client := range clients {
-			err := client.WriteJSON(msg)
-			if err != nil {
-				log.Printf("WebSocket写入错误: %v", err)
-				client.Close()
-				delete(clients, client)
-			}
-		}
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		port = envPort
 	}
+
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: handler,
+	}
+
+	// 优雅关闭
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+
+		log.Println("🛑 正在关闭服务器...")
+		if err := server.Close(); err != nil {
+			log.Printf("服务器关闭错误: %v", err)
+		}
+	}()
+
+	log.Printf("🌐 服务器启动在端口 %s", port)
+	log.Printf("📊 访问 http://localhost:%s 查看监控面板", port)
+
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatalf("服务器启动失败: %v", err)
+	}
+
+	log.Println("✅ 服务器已关闭")
 }
 
+// handleMetrics 处理系统指标请求
+func handleMetrics(w http.ResponseWriter, r *http.Request) {
+	metrics, err := dataCollector.GetSystemMetrics()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(metrics)
+}
+
+// handleThreats 处理威胁信息请求
+func handleThreats(w http.ResponseWriter, r *http.Request) {
+	threats := threatDetector.GetThreats()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(threats)
+}
+
+// handleConnections 处理网络连接请求
+func handleConnections(w http.ResponseWriter, r *http.Request) {
+	connections, err := dataCollector.GetNetworkConnections()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(connections)
+}
+
+// handleProcesses 处理进程信息请求
+func handleProcesses(w http.ResponseWriter, r *http.Request) {
+	data := dataCollector.GetSystemData()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data.Processes)
+}
+
+// handleSystemInfo 处理系统信息请求
+func handleSystemInfo(w http.ResponseWriter, r *http.Request) {
+	data := dataCollector.GetSystemData()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data.SystemInfo)
+}
+
+// handleWebSocket 处理WebSocket连接
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// 升级HTTP连接为WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket升级失败: %v", err)
 		return
 	}
 	defer conn.Close()
-	
-	// 注册新客户端
-	clients[conn] = true
-	log.Printf("新的WebSocket连接，当前连接数: %d", len(clients))
-	
-	// 发送初始数据
-	initialData := collector.GetSystemData()
-	if err := conn.WriteJSON(initialData); err != nil {
-		log.Printf("发送初始数据失败: %v", err)
-		delete(clients, conn)
+
+	log.Println("🔌 新的WebSocket连接")
+
+	// 发送实时数据
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// 获取系统数据
+			systemData := dataCollector.GetSystemData()
+			
+			// 检测威胁
+			threats := threatDetector.DetectThreats(systemData)
+			
+			// 构建响应数据
+			response := map[string]interface{}{
+				"timestamp": time.Now().Format(time.RFC3339),
+				"system":    systemData,
+				"threats":   threats,
+				"stats":     dataCollector.GetNetworkStats(),
+			}
+
+			// 发送数据
+			if err := conn.WriteJSON(response); err != nil {
+				log.Printf("WebSocket写入错误: %v", err)
+				return
+			}
+
+		default:
+			// 检查连接是否还活着
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("WebSocket ping失败: %v", err)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+// ensureStaticFiles 确保静态文件存在
+func ensureStaticFiles() {
+	staticDir := "./static"
+	if err := os.MkdirAll(staticDir, 0755); err != nil {
+		log.Printf("创建静态文件目录失败: %v", err)
 		return
 	}
-	
-	// 保持连接并处理消息
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			log.Printf("WebSocket读取错误: %v", err)
-			delete(clients, conn)
-			break
+
+	indexFile := filepath.Join(staticDir, "index.html")
+	if _, err := os.Stat(indexFile); os.IsNotExist(err) {
+		// 创建基本的HTML文件
+		html := `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网络监控系统</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .card { background: #f5f5f5; padding: 20px; margin: 10px 0; border-radius: 5px; }
+        .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+        .metric { background: white; padding: 15px; border-radius: 5px; text-align: center; }
+        .metric h3 { margin: 0 0 10px 0; color: #333; }
+        .metric .value { font-size: 2em; font-weight: bold; color: #007bff; }
+        .status { padding: 5px 10px; border-radius: 3px; color: white; }
+        .status.healthy { background: #28a745; }
+        .status.warning { background: #ffc107; }
+        .status.critical { background: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖥️ 网络监控系统</h1>
+        
+        <div class="card">
+            <h2>系统状态</h2>
+            <div id="status" class="status healthy">系统正常</div>
+        </div>
+
+        <div class="card">
+            <h2>系统指标</h2>
+            <div class="metrics" id="metrics">
+                <div class="metric">
+                    <h3>CPU使用率</h3>
+                    <div class="value" id="cpu">0%</div>
+                </div>
+                <div class="metric">
+                    <h3>内存使用率</h3>
+                    <div class="value" id="memory">0%</div>
+                </div>
+                <div class="metric">
+                    <h3>磁盘使用率</h3>
+                    <div class="value" id="disk">0%</div>
+                </div>
+                <div class="metric">
+                    <h3>网络连接</h3>
+                    <div class="value" id="connections">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>威胁检测</h2>
+            <div id="threats">暂无威胁</div>
+        </div>
+    </div>
+
+    <script>
+        // 获取系统指标
+        function updateMetrics() {
+            fetch('/api/metrics')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('cpu').textContent = data.cpu.toFixed(1) + '%';
+                    document.getElementById('memory').textContent = data.memory.toFixed(1) + '%';
+                    document.getElementById('disk').textContent = data.disk.toFixed(1) + '%';
+                    document.getElementById('connections').textContent = data.network.connections;
+                    
+                    // 更新状态
+                    const statusEl = document.getElementById('status');
+                    statusEl.textContent = data.status === 'healthy' ? '系统正常' : 
+                                          data.status === 'warning' ? '系统警告' : '系统异常';
+                    statusEl.className = 'status ' + data.status;
+                })
+                .catch(error => console.error('获取指标失败:', error));
+        }
+
+        // 获取威胁信息
+        function updateThreats() {
+            fetch('/api/threats')
+                .then(response => response.json())
+                .then(data => {
+                    const threatsEl = document.getElementById('threats');
+                    if (data.length === 0) {
+                        threatsEl.innerHTML = '暂无威胁';
+                    } else {
+                        threatsEl.innerHTML = data.map(threat => 
+                            '<div style="margin: 5px 0; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107;">' +
+                            '<strong>' + threat.type + '</strong> - ' + threat.description +
+                            '</div>'
+                        ).join('');
+                    }
+                })
+                .catch(error => console.error('获取威胁信息失败:', error));
+        }
+
+        // 定期更新数据
+        updateMetrics();
+        updateThreats();
+        setInterval(updateMetrics, 2000);
+        setInterval(updateThreats, 5000);
+    </script>
+</body>
+</html>`
+
+		if err := os.WriteFile(indexFile, []byte(html), 0644); err != nil {
+			log.Printf("创建index.html失败: %v", err)
 		}
 	}
 }
 
-func handleSystemInfo(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	
-	data := collector.GetSystemData()
-	json.NewEncoder(w).Encode(data)
-}
-
-func handleAgents(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	
-	agents := []Agent{
-		{
-			ID:       "agent-1",
-			Name:     "本地服务器",
-			Host:     "localhost",
-			Port:     8080,
-			Status:   "online",
-			LastSeen: time.Now(),
-		},
-		{
-			ID:       "agent-2", 
-			Name:     "Web服务器-1",
-			Host:     "192.168.1.10",
-			Port:     8080,
-			Status:   "online",
-			LastSeen: time.Now().Add(-30 * time.Second),
-		},
-	}
-	
-	json.NewEncoder(w).Encode(agents)
-}
-
-func handleThreats(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	
-	threats := detector.GetThreats()
-	json.NewEncoder(w).Encode(threats)
-}
-
-// 辅助函数：检查文件是否存在
-func fileExists(filename string) bool {
-	info, err := os.Stat(filename)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return !info.IsDir()
-}
-
-// 辅助函数：获取静态文件路径
-func getStaticPath() string {
-	paths := []string{"out", ".next", "static", "public"}
-	
-	for _, path := range paths {
-		if _, err := os.Stat(path); err == nil {
-			absPath, _ := filepath.Abs(path)
-			return absPath
-		}
-	}
-	
-	return ""
+func init() {
+	ensureStaticFiles()
 }
