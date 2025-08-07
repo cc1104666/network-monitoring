@@ -21,18 +21,6 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 )
 
-// RealDataCollector collects real system data
-type RealDataCollector struct {
-	hostname         string
-	enabled          bool
-	networkStats     *NetworkStats
-	connections      []ConnectionInfo
-	processes        []ProcessInfo
-	startTime        time.Time
-	lastNetworkStats netutil.IOCountersStat
-	lastUpdateTime   time.Time
-}
-
 // NewRealDataCollector creates a new real data collector
 func NewRealDataCollector() *RealDataCollector {
 	hostname, _ := os.Hostname()

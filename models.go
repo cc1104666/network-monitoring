@@ -2,7 +2,20 @@ package main
 
 import (
 	"time"
+	netutil "github.com/shirou/gopsutil/v3/net"
 )
+
+// RealDataCollector collects real system data
+type RealDataCollector struct {
+	hostname         string
+	enabled          bool
+	networkStats     *NetworkStats
+	connections      []ConnectionInfo
+	processes        []ProcessInfo
+	startTime        time.Time
+	lastNetworkStats netutil.IOCountersStat
+	lastUpdateTime   time.Time
+}
 
 // SystemMetrics represents system performance metrics
 type SystemMetrics struct {
