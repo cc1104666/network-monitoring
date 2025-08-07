@@ -5,8 +5,8 @@
 
 set -e
 
-echo "🔧 修复Node.js版本问题"
-echo "======================"
+echo "🔧 开始修复Node.js版本问题..."
+echo "============================="
 
 # 颜色定义
 RED='\033[0;31m'
@@ -39,12 +39,8 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 print_step "1. 检查当前Node.js版本"
-if command -v node &> /dev/null; then
-    CURRENT_NODE_VERSION=$(node --version)
-    print_warning "当前Node.js版本: $CURRENT_NODE_VERSION (需要 >= 18.18.0)"
-else
-    print_warning "未找到Node.js"
-fi
+echo "[信息] 当前Node.js版本:"
+node --version || echo "Node.js未安装或版本过低"
 
 print_step "2. 卸载旧版本Node.js"
 print_status "移除旧版本Node.js..."
@@ -68,73 +64,37 @@ print_step "3. 安装Node.js 18.x"
 print_status "下载并安装Node.js 18.x..."
 
 # 添加NodeSource仓库
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 
 # 安装Node.js 18.x
-apt-get install -y nodejs
+sudo apt-get install -y nodejs
 
 # 验证安装
-if command -v node &> /dev/null; then
-    NEW_NODE_VERSION=$(node --version)
-    NEW_NPM_VERSION=$(npm --version)
-    print_status "✅ Node.js安装成功: $NEW_NODE_VERSION"
-    print_status "✅ npm版本: $NEW_NPM_VERSION"
-else
-    print_error "❌ Node.js安装失败"
-    exit 1
-fi
+echo "[信息] 新的Node.js版本:"
+node --version
+npm --version
 
-print_step "4. 清理项目依赖"
+print_step "4. 清理旧的依赖"
 print_status "清理现有的node_modules和package-lock.json..."
 
 # 进入项目目录
 cd /opt/network-monitoring
 
 # 清理现有依赖
-rm -rf node_modules
-rm -f package-lock.json
-rm -f npm-debug.log*
+if [ -d "node_modules" ]; then
+    rm -rf node_modules
+    echo "✅ 已删除旧的node_modules"
+fi
 
-print_step "5. 更新package.json为兼容版本"
-print_status "创建兼容的package.json..."
+if [ -f "package-lock.json" ]; then
+    rm -f package-lock.json
+    echo "✅ 已删除旧的package-lock.json"
+fi
 
-cat > package.json << 'EOF'
-{
-  "name": "network-monitoring-system",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
-  },
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "next": "^14.0.0",
-    "@types/node": "^18.0.0",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "typescript": "^5.0.0",
-    "tailwindcss": "^3.3.0",
-    "autoprefixer": "^10.4.0",
-    "postcss": "^8.4.0",
-    "lucide-react": "^0.294.0",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.0.0",
-    "tailwind-merge": "^2.0.0"
-  },
-  "devDependencies": {
-    "eslint": "^8.0.0",
-    "eslint-config-next": "^14.0.0"
-  },
-  "engines": {
-    "node": ">=18.18.0",
-    "npm": ">=8.0.0"
-  }
-}
-EOF
+print_step "5. 更新npm"
+print_status "更新npm到最新版本..."
+
+sudo npm install -g npm@latest
 
 print_step "6. 重新安装依赖"
 print_status "使用新版本Node.js安装依赖..."

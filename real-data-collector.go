@@ -17,163 +17,20 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/mem"
-	"github.com/shirou/gopsutil/v3/net"
+	netutil "github.com/shirou/gopsutil/v3/net"
 	"github.com/shirou/gopsutil/v3/process"
 )
 
 // RealDataCollector collects real system data
 type RealDataCollector struct {
-	hostname       string
-	enabled        bool
-	networkStats   *NetworkStats
-	connections    []ConnectionInfo
-	processes      []ProcessInfo
-	startTime      time.Time
-	lastNetworkStats net.IOCountersStat
+	hostname         string
+	enabled          bool
+	networkStats     *NetworkStats
+	connections      []ConnectionInfo
+	processes        []ProcessInfo
+	startTime        time.Time
+	lastNetworkStats netutil.IOCountersStat
 	lastUpdateTime   time.Time
-}
-
-// NetworkStats holds network statistics
-type NetworkStats struct {
-	ActiveConnections int
-	TotalRequests     int
-	SuspiciousIPs     int
-	BlockedRequests   int
-	ThreatLevel       string
-	LastAttack        string
-}
-
-// ConnectionInfo holds information about network connections
-type ConnectionInfo struct {
-	Protocol    string
-	LocalAddr   string
-	RemoteAddr  string
-	State       string
-	ProcessName string
-	PID         int
-	Timestamp   string
-}
-
-// ProcessInfo holds information about running processes
-type ProcessInfo struct {
-	PID         int
-	Name        string
-	CPUPercent  float64
-	MemoryMB    float64
-	Status      string
-	Timestamp   string
-	CommandLine string
-	CreateTime  string
-	Connections int
-}
-
-// SystemInfo holds basic system information
-type SystemInfo struct {
-	Hostname           string
-	OS                 string
-	Platform           string
-	CPUCores           int
-	RealDataEnabled    bool
-	Uptime             string
-	CPUModel           string
-	TotalMemory        uint64
-	LoadAverage        []float64
-	MemoryUsage        float64
-	DiskUsage          float64
-	NetworkInterfaces  []string
-	ActiveConnections  int
-	ListeningPorts     []int
-	PlatformVersion    string
-	Architecture       string
-	BootTime           int64
-}
-
-// SystemMetrics holds current system metrics
-type SystemMetrics struct {
-	ServerID       string
-	ServerName     string
-	ServerIP       string
-	Timestamp      string
-	Status         string
-	CPU            float64
-	Memory         float64
-	Disk           float64
-	Network        NetworkMetrics
-	ProcessCount   int
-}
-
-// NetworkMetrics holds network metrics
-type NetworkMetrics struct {
-	BytesSent   uint64
-	BytesRecv   uint64
-	PacketsSent uint64
-	PacketsRecv uint64
-	Connections int
-}
-
-// SystemData holds all system data
-type SystemData struct {
-	Timestamp   time.Time
-	CPU         CPUInfo
-	Memory      MemoryInfo
-	Disk        DiskInfo
-	Network     NetworkInfo
-	Processes   []ProcessInfo
-	Connections []ConnectionInfo
-	SystemInfo  SystemInfo
-	Threats     []Threat
-}
-
-// CPUInfo holds CPU information
-type CPUInfo struct {
-	Cores       int
-	Usage       float64
-	LoadAvg     float64
-	Frequency   float64
-}
-
-// MemoryInfo holds memory information
-type MemoryInfo struct {
-	Total         uint64
-	Used          uint64
-	Available     uint64
-	UsagePercent  float64
-	SwapTotal     uint64
-	SwapUsed      uint64
-}
-
-// DiskInfo holds disk information
-type DiskInfo struct {
-	Total         uint64
-	Used          uint64
-	Free          uint64
-	UsagePercent  float64
-}
-
-// NetworkInfo holds network information
-type NetworkInfo struct {
-	BytesSent     uint64
-	BytesRecv     uint64
-	PacketsSent   uint64
-	PacketsRecv   uint64
-	Connections   int
-	ListenPorts   []int
-	Interfaces    []NetworkInterface
-}
-
-// NetworkInterface holds information about a network interface
-type NetworkInterface struct {
-	Name      string
-	BytesSent uint64
-	BytesRecv uint64
-	IsUp      bool
-}
-
-// Threat holds information about a threat
-type Threat struct {
-	IP          string
-	Description string
-	Timestamp   string
 }
 
 // NewRealDataCollector creates a new real data collector
@@ -186,9 +43,9 @@ func NewRealDataCollector() *RealDataCollector {
 			ThreatLevel: "LOW",
 			LastAttack:  "无",
 		},
-		connections: make([]ConnectionInfo, 0),
-		processes:   make([]ProcessInfo, 0),
-		startTime:   time.Now(),
+		connections:    make([]ConnectionInfo, 0),
+		processes:      make([]ProcessInfo, 0),
+		startTime:      time.Now(),
 		lastUpdateTime: time.Now(),
 	}
 }
@@ -198,7 +55,7 @@ func (c *RealDataCollector) Start() {
 	log.Println("🔍 启动真实数据收集器...")
 	
 	// 初始化网络统计
-	if netStats, err := net.IOCounters(false); err == nil && len(netStats) > 0 {
+	if netStats, err := netutil.IOCounters(false); err == nil && len(netStats) > 0 {
 		c.lastNetworkStats = netStats[0]
 	}
 	
@@ -256,7 +113,7 @@ func (c *RealDataCollector) getMemoryInfo() MemoryInfo {
 		memInfo.Total = vmStat.Total
 		memInfo.Used = vmStat.Used
 		memInfo.Available = vmStat.Available
-		memInfo.UsagePercent = vmStat.UsedPercent
+		memInfo.UsedPercent = vmStat.UsedPercent
 	}
 	
 	if swapStat, err := mem.SwapMemory(); err == nil {
@@ -286,7 +143,7 @@ func (c *RealDataCollector) getNetworkInfo() NetworkInfo {
 	networkInfo := NetworkInfo{}
 	
 	// 获取网络IO统计
-	if netStats, err := net.IOCounters(false); err == nil && len(netStats) > 0 {
+	if netStats, err := netutil.IOCounters(false); err == nil && len(netStats) > 0 {
 		stat := netStats[0]
 		networkInfo.BytesSent = stat.BytesSent
 		networkInfo.BytesRecv = stat.BytesRecv
@@ -295,7 +152,7 @@ func (c *RealDataCollector) getNetworkInfo() NetworkInfo {
 	}
 	
 	// 获取网络接口信息
-	if interfaces, err := net.IOCounters(true); err == nil {
+	if interfaces, err := netutil.IOCounters(true); err == nil {
 		for _, iface := range interfaces {
 			networkInfo.Interfaces = append(networkInfo.Interfaces, NetworkInterface{
 				Name:      iface.Name,
@@ -307,7 +164,7 @@ func (c *RealDataCollector) getNetworkInfo() NetworkInfo {
 	}
 	
 	// 获取网络连接数
-	if connections, err := net.Connections("inet"); err == nil {
+	if connections, err := netutil.Connections("inet"); err == nil {
 		networkInfo.Connections = len(connections)
 		
 		// 获取监听端口
@@ -364,7 +221,7 @@ func (c *RealDataCollector) getProcessInfo() []ProcessInfo {
 		}
 		
 		processes = append(processes, ProcessInfo{
-			PID:         pid,
+			PID:         int32(pid),
 			Name:        name,
 			CPUPercent:  cpuPercent,
 			MemoryMB:    memoryMB,
@@ -383,7 +240,7 @@ func (c *RealDataCollector) getProcessInfo() []ProcessInfo {
 func (c *RealDataCollector) getConnections() []ConnectionInfo {
 	var connections []ConnectionInfo
 	
-	netConnections, err := net.Connections("inet")
+	netConnections, err := netutil.Connections("inet")
 	if err != nil {
 		return connections
 	}
@@ -432,7 +289,7 @@ func (c *RealDataCollector) getSystemInfo() SystemInfo {
 		systemInfo.Platform = hostInfo.Platform
 		systemInfo.PlatformVersion = hostInfo.PlatformVersion
 		systemInfo.Architecture = hostInfo.KernelArch
-		systemInfo.Uptime = fmt.Sprintf("%d 秒", hostInfo.Uptime)
+		systemInfo.Uptime = hostInfo.Uptime
 		systemInfo.BootTime = hostInfo.BootTime
 	}
 	
@@ -782,12 +639,12 @@ func (rdc *RealDataCollector) getProcessInfo(pid int) *ProcessInfo {
 	}
 	
 	return &ProcessInfo{
-		PID:         pid,
+		PID:         int32(pid),
 		Name:        name,
 		CPUPercent:  0.0, // 需要复杂计算
 		MemoryMB:    0.0, // 需要从 /proc/pid/status 读取
 		Status:      "running",
-		CreateTime:  time.Now().Format("15:04:05"),
+		CreateTime:  time.Now().Unix(),
 	}
 }
 
@@ -972,10 +829,10 @@ func (r *RealDataCollector) getLocalIP() string {
 
 // determineStatus determines the system status based on metrics
 func (r *RealDataCollector) determineStatus(metrics *SystemMetrics) string {
-	if metrics.CPU > 90 || metrics.Memory > 90 || metrics.Network.BytesRecv > 95 {
+	if metrics.CPU > 90 || metrics.Memory > 90 || metrics.Disk > 95 {
 		return "critical"
 	}
-	if metrics.CPU > 70 || metrics.Memory > 80 || metrics.Network.BytesRecv > 85 {
+	if metrics.CPU > 70 || metrics.Memory > 80 || metrics.Disk > 85 {
 		return "warning"
 	}
 	return "healthy"
@@ -1044,43 +901,6 @@ func (r *RealDataCollector) getMockNetworkConnections() []ConnectionInfo {
 			ProcessName: "network-monitor",
 			PID:         9999,
 			Timestamp:   time.Now().Format(time.RFC3339),
-		},
-	}
-}
-
-// getMockProcesses returns mock process information
-func (r *RealDataCollector) getMockProcesses() []ProcessInfo {
-	now := time.Now()
-	return []ProcessInfo{
-		{
-			PID:         1,
-			Name:        "systemd",
-			CPUPercent:    0.1,
-			MemoryMB:    512,
-			Status:      "S",
-			Timestamp:   now.Format(time.RFC3339),
-			CommandLine: "/sbin/init",
-			CreateTime:  now.Format("15:04:05"),
-		},
-		{
-			PID:         1234,
-			Name:        "sshd",
-			CPUPercent:    0.2,
-			MemoryMB:    1024,
-			Status:      "S",
-			Timestamp:   now.Format(time.RFC3339),
-			CommandLine: "/usr/sbin/sshd -D",
-			CreateTime:  now.Format("15:04:05"),
-		},
-		{
-			PID:         9999,
-			Name:        "network-monitor",
-			CPUPercent:    2.5,
-			MemoryMB:    2048,
-			Status:      "R",
-			Timestamp:   now.Format(time.RFC3339),
-			CommandLine: "./network-monitor",
-			CreateTime:  now.Format("15:04:05"),
 		},
 	}
 }
@@ -1256,4 +1076,26 @@ func getListeningPorts() []int {
 	}
 	
 	return ports
+}
+
+// 辅助方法实现
+func (r *RealDataCollector) getCPUUsage() (float64, error) {
+	if percentages, err := cpu.Percent(time.Second, false); err == nil && len(percentages) > 0 {
+		return percentages[0], nil
+	}
+	return 0.0, fmt.Errorf("failed to get CPU usage")
+}
+
+func (r *RealDataCollector) getMemoryUsage() (float64, error) {
+	if vmStat, err := mem.VirtualMemory(); err == nil {
+		return vmStat.UsedPercent, nil
+	}
+	return 0.0, fmt.Errorf("failed to get memory usage")
+}
+
+func (r *RealDataCollector) getDiskUsage() (float64, error) {
+	if usage, err := disk.Usage("/"); err == nil {
+		return usage.UsedPercent, nil
+	}
+	return 0.0, fmt.Errorf("failed to get disk usage")
 }

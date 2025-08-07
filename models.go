@@ -119,11 +119,13 @@ type LogEntry struct {
 
 // ConnectionInfo 连接信息结构
 type ConnectionInfo struct {
+	Protocol    string `json:"protocol"`
 	LocalAddr   string `json:"local_addr"`
 	RemoteAddr  string `json:"remote_addr"`
 	State       string `json:"state"`
 	ProcessName string `json:"process_name"`
 	PID         int    `json:"pid"`
+	Timestamp   string `json:"timestamp"`
 }
 
 // NetworkInterface 网络接口结构
@@ -136,34 +138,58 @@ type NetworkInterface struct {
 
 // DiskInfo 磁盘信息结构
 type DiskInfo struct {
-	Device     string  `json:"device"`
-	Mountpoint string  `json:"mountpoint"`
-	Fstype     string  `json:"fstype"`
-	Total      uint64  `json:"total"`
-	Used       uint64  `json:"used"`
-	Free       uint64  `json:"free"`
-	Percent    float64 `json:"percent"`
+	Device        string  `json:"device"`
+	Mountpoint    string  `json:"mountpoint"`
+	Fstype        string  `json:"fstype"`
+	Total         uint64  `json:"total"`
+	Used          uint64  `json:"used"`
+	Free          uint64  `json:"free"`
+	UsagePercent  float64 `json:"usage_percent"`
 }
 
 // MemoryInfo 内存信息结构
 type MemoryInfo struct {
-	Total       uint64  `json:"total"`
-	Available   uint64  `json:"available"`
-	Used        uint64  `json:"used"`
-	UsedPercent float64 `json:"used_percent"`
-	Free        uint64  `json:"free"`
-	Buffers     uint64  `json:"buffers"`
-	Cached      uint64  `json:"cached"`
-	SwapTotal   uint64  `json:"swap_total"`
-	SwapUsed    uint64  `json:"swap_used"`
+	Total        uint64  `json:"total"`
+	Available    uint64  `json:"available"`
+	Used         uint64  `json:"used"`
+	UsedPercent  float64 `json:"used_percent"`
+	Free         uint64  `json:"free"`
+	Buffers      uint64  `json:"buffers"`
+	Cached       uint64  `json:"cached"`
+	SwapTotal    uint64  `json:"swap_total"`
+	SwapUsed     uint64  `json:"swap_used"`
 }
 
 // CPUInfo CPU信息结构
 type CPUInfo struct {
-	ModelName string    `json:"model_name"`
-	Cores     int       `json:"cores"`
-	Usage     []float64 `json:"usage"`
-	Frequency float64   `json:"frequency"`
+	Cores     int     `json:"cores"`
+	Usage     float64 `json:"usage"`
+	LoadAvg   float64 `json:"load_avg"`
+	Frequency float64 `json:"frequency"`
+}
+
+// NetworkInfo 网络信息结构
+type NetworkInfo struct {
+	BytesSent     uint64             `json:"bytes_sent"`
+	BytesRecv     uint64             `json:"bytes_recv"`
+	PacketsSent   uint64             `json:"packets_sent"`
+	PacketsRecv   uint64             `json:"packets_recv"`
+	Connections   int                `json:"connections"`
+	ListenPorts   []int              `json:"listen_ports"`
+	Interfaces    []NetworkInterface `json:"interfaces"`
+}
+
+// SystemData 系统数据结构
+type SystemData struct {
+	Timestamp   time.Time        `json:"timestamp"`
+	CPU         CPUInfo          `json:"cpu"`
+	Memory      MemoryInfo       `json:"memory"`
+	Disk        DiskInfo         `json:"disk"`
+	Network     NetworkInfo      `json:"network"`
+	Processes   []ProcessInfo    `json:"processes"`
+	Connections []ConnectionInfo `json:"connections"`
+	Threats     []Threat         `json:"threats"`
+	SystemInfo  SystemInfo       `json:"system_info"`
 }
 
 // ThreatLevel represents threat severity levels
@@ -209,58 +235,6 @@ const (
 	SystemStatusCritical SystemStatus = "critical"
 	SystemStatusDown     SystemStatus = "down"
 )
-
-// SystemMonitor 系统监控器接口
-type SystemMonitor struct {
-	startTime time.Time
-}
-
-// ThreatDetector 威胁检测器
-type ThreatDetector struct {
-	threats []ThreatInfo
-}
-
-// RealDataCollector 真实数据收集器
-type RealDataCollector struct {
-	networkStats NetworkStats
-}
-
-// NewSystemMonitor 创建新的系统监控器
-func NewSystemMonitor() *SystemMonitor {
-	return &SystemMonitor{
-		startTime: time.Now(),
-	}
-}
-
-// NewThreatDetector 创建新的威胁检测器
-func NewThreatDetector() *ThreatDetector {
-	return &ThreatDetector{
-		threats: make([]ThreatInfo, 0),
-	}
-}
-
-// NewRealDataCollector 创建新的数据收集器
-func NewRealDataCollector() *RealDataCollector {
-	return &RealDataCollector{
-		networkStats: NetworkStats{
-			ThreatLevel: "LOW",
-			LastAttack:  "无",
-		},
-	}
-}
-
-// SystemData 系统数据结构
-type SystemData struct {
-	Timestamp    time.Time     `json:"timestamp"`
-	CPU          CPUInfo       `json:"cpu"`
-	Memory       MemoryInfo    `json:"memory"`
-	Disk         DiskInfo      `json:"disk"`
-	Network      NetworkInfo   `json:"network"`
-	Processes    []ProcessInfo `json:"processes"`
-	Connections  []Connection  `json:"connections"`
-	Threats      []Threat      `json:"threats"`
-	SystemInfo   SystemInfo    `json:"system_info"`
-}
 
 // Connection 网络连接
 type Connection struct {
