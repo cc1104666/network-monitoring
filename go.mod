@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/rs/cors v1.11.1
+	github.com/rs/cors v1.10.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 )
 

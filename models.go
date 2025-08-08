@@ -292,3 +292,11 @@ type Alert struct {
 	Status      string    `json:"status"`
 	Source      string    `json:"source"`
 }
+
+// ThreatDetector 威胁检测器
+type ThreatDetector struct {
+	enabled       bool
+	threats       []Threat
+	suspiciousIPs map[string]int
+	blockedIPs    map[string]bool
+}
